@@ -6,6 +6,8 @@
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
 // @grant        none
+// @updateURL    https://raw.githubusercontent.com/gyshop/bayspark-helper/main/main.user.js
+// @downloadURL  https://raw.githubusercontent.com/gyshop/bayspark-helper/main/main.user.js
 // ==/UserScript==
 
 (function () {
