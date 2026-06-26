@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.8
+// @version      1.9
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -238,38 +238,42 @@
     await menuConfirm('販売価格に応じてShippingを割り当て', 8000);
   }
 
-  // 未選択時に表示される「オプションを選択」プレースホルダーからStore Categoryの開閉トリガーを探す
-  function findStoreCategoryTrigger() {
-    const placeholderEls = Array.from(document.querySelectorAll('button, div, span')).filter(
-      (el) => el.children.length === 0 && el.textContent.trim() === 'オプションを選択' && el.offsetParent !== null
+  // Store Categoryの隠しselect(id末尾がstore_category_name)から、それを包むChoices.jsのコンテナを探す
+  function findStoreCategoryChoicesContainer() {
+    const select = Array.from(document.querySelectorAll('select[id$="store_category_name"]')).find(
+      (el) => el.offsetParent !== null || el.closest('[role="dialog"], .fi-modal')
     );
-    if (placeholderEls.length === 0) return null;
-
-    const el = placeholderEls[placeholderEls.length - 1];
-    return el.closest('button, [role="button"], [tabindex]') || el;
+    if (!select) return null;
+    return select.closest('.choices');
   }
 
   // Store Categoryコンボボックスを開き、検索欄に入力して候補をクリックする
   async function setStoreCategory(categoryName) {
     log(`Store Categoryを「${categoryName}」に設定します`);
 
-    const trigger = findStoreCategoryTrigger();
-    if (!trigger) {
+    const container = findStoreCategoryChoicesContainer();
+    if (!container) {
       log('Store Category欄が見つかりませんでした');
       return false;
     }
 
-    fireFullClick(trigger);
+    const inner = container.querySelector('.choices__inner');
+    if (!inner) {
+      log('Store Categoryの開閉トリガーが見つかりませんでした');
+      return false;
+    }
+
+    fireFullClick(inner);
     await sleep(300);
 
-    const searchInput = document.querySelector('input[placeholder="検索キーワードを入力..."]');
+    const searchInput = container.querySelector('input.choices__input--cloned, input[type="search"]');
     if (searchInput) {
       setInputValue(searchInput, categoryName);
       await sleep(500);
     }
 
-    const options = Array.from(document.querySelectorAll('[role="option"], li, div')).filter(
-      (el) => el.children.length === 0 && el.offsetParent !== null && el.textContent.trim() === categoryName
+    const options = Array.from(container.querySelectorAll('.choices__item--choice')).filter(
+      (el) => el.textContent.trim() === categoryName
     );
 
     if (options.length === 0) {
@@ -277,7 +281,7 @@
       return false;
     }
 
-    fireFullClick(options[options.length - 1]);
+    fireFullClick(options[0]);
     log(`Store Categoryを「${categoryName}」に設定しました`);
     await sleep(300);
     return true;
