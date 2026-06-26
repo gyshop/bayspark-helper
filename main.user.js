@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.9
+// @version      1.10
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -239,12 +239,15 @@
   }
 
   // Store Categoryの隠しselect(id末尾がstore_category_name)から、それを包むChoices.jsのコンテナを探す
+  // select自体はChoices.jsによりhidden属性で隠されているため、selectではなく
+  // それを包む.choicesコンテナの表示状態で判定する
   function findStoreCategoryChoicesContainer() {
-    const select = Array.from(document.querySelectorAll('select[id$="store_category_name"]')).find(
-      (el) => el.offsetParent !== null || el.closest('[role="dialog"], .fi-modal')
-    );
-    if (!select) return null;
-    return select.closest('.choices');
+    const selects = Array.from(document.querySelectorAll('select[id$="store_category_name"]'));
+    for (const select of selects) {
+      const container = select.closest('.choices');
+      if (container && container.offsetParent !== null) return container;
+    }
+    return null;
   }
 
   // Store Categoryコンボボックスを開き、検索欄に入力して候補をクリックする
