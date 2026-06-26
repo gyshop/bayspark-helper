@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.10
+// @version      1.11
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -238,14 +238,18 @@
     await menuConfirm('販売価格に応じてShippingを割り当て', 8000);
   }
 
-  // Store Categoryの隠しselect(id末尾がstore_category_name)から、それを包むChoices.jsのコンテナを探す
-  // select自体はChoices.jsによりhidden属性で隠されているため、selectではなく
-  // それを包む.choicesコンテナの表示状態で判定する
-  function findStoreCategoryChoicesContainer() {
+  // Store Categoryの隠しselect(id末尾がstore_category_name)から、Choices.jsの
+  // クリック対象（.choices__inner = selectの直接の親）と、検索欄/候補を探す範囲（その親）を取得する
+  function findStoreCategoryParts() {
     const selects = Array.from(document.querySelectorAll('select[id$="store_category_name"]'));
+    log(`Store Category用select候補: ${selects.length}件`);
+
     for (const select of selects) {
-      const container = select.closest('.choices');
-      if (container && container.offsetParent !== null) return container;
+      const inner = select.closest('.choices__inner') || select.parentElement;
+      if (inner && inner.offsetParent !== null) {
+        const outer = inner.parentElement || inner;
+        return { inner, outer };
+      }
     }
     return null;
   }
@@ -254,28 +258,24 @@
   async function setStoreCategory(categoryName) {
     log(`Store Categoryを「${categoryName}」に設定します`);
 
-    const container = findStoreCategoryChoicesContainer();
-    if (!container) {
+    const parts = findStoreCategoryParts();
+    if (!parts) {
       log('Store Category欄が見つかりませんでした');
       return false;
     }
 
-    const inner = container.querySelector('.choices__inner');
-    if (!inner) {
-      log('Store Categoryの開閉トリガーが見つかりませんでした');
-      return false;
-    }
-
-    fireFullClick(inner);
+    fireFullClick(parts.inner);
     await sleep(300);
 
-    const searchInput = container.querySelector('input.choices__input--cloned, input[type="search"]');
+    const searchInput = parts.outer.querySelector('input.choices__input--cloned, input[type="search"]');
     if (searchInput) {
       setInputValue(searchInput, categoryName);
       await sleep(500);
+    } else {
+      log('カテゴリ検索欄が見つかりませんでした（候補一覧から直接探します）');
     }
 
-    const options = Array.from(container.querySelectorAll('.choices__item--choice')).filter(
+    const options = Array.from(parts.outer.querySelectorAll('.choices__item--choice')).filter(
       (el) => el.textContent.trim() === categoryName
     );
 
