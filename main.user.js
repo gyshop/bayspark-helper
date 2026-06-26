@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.6
+// @version      1.7
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -117,10 +117,16 @@
   }
 
   // メニューを開いて確認ボタンが現れるまで待機し、確認をクリックする
-  async function menuConfirm(menuText, waitMs) {
+  // onOpened を渡すと、モーダル表示後・待機前に追加操作（例: カテゴリ選択）を実行できる
+  async function menuConfirm(menuText, waitMs, onOpened) {
     log(`実行: ${menuText}`);
     const opened = openMenuItem(menuText);
     if (!opened) return false;
+
+    if (typeof onOpened === 'function') {
+      await sleep(500);
+      await onOpened();
+    }
 
     await sleep(waitMs);
 
@@ -230,8 +236,60 @@
     await menuConfirm('販売価格に応じてShippingを割り当て', 8000);
   }
 
+  // 「Store Category」ラベルを持つコンボボックスの開閉トリガーを探す
+  function findStoreCategoryTrigger() {
+    const labelEl = Array.from(document.querySelectorAll('label, div, span')).find(
+      (el) => el.textContent.trim() === 'Store Category' && el.children.length === 0
+    );
+    if (!labelEl) return null;
+
+    let container = labelEl.closest('div');
+    for (let i = 0; i < 5 && container; i++) {
+      const trigger = container.querySelector('input[type="text"], [role="combobox"], button');
+      if (trigger) return trigger;
+      container = container.parentElement;
+    }
+    return null;
+  }
+
+  // Store Categoryコンボボックスを開き、検索欄に入力して候補をクリックする
+  async function setStoreCategory(categoryName) {
+    log(`Store Categoryを「${categoryName}」に設定します`);
+
+    const trigger = findStoreCategoryTrigger();
+    if (!trigger) {
+      log('Store Category欄が見つかりませんでした');
+      return false;
+    }
+
+    fireFullClick(trigger);
+    await sleep(300);
+
+    const searchInput = document.querySelector('input[placeholder="検索キーワードを入力..."]');
+    if (searchInput) {
+      setInputValue(searchInput, categoryName);
+      await sleep(500);
+    }
+
+    const options = Array.from(document.querySelectorAll('[role="option"], li, div')).filter(
+      (el) => el.children.length === 0 && el.textContent.trim() === categoryName
+    );
+
+    if (options.length === 0) {
+      log(`カテゴリ候補「${categoryName}」が見つかりませんでした`);
+      return false;
+    }
+
+    fireFullClick(options[0]);
+    log(`Store Categoryを「${categoryName}」に設定しました`);
+    await sleep(300);
+    return true;
+  }
+
   async function runCategoryChange() {
-    await menuConfirm(`ストアカテゴリー一括変更`, settings.categoryWaitMs);
+    await menuConfirm('ストアカテゴリー一括変更', settings.categoryWaitMs, async () => {
+      await setStoreCategory(settings.categoryName);
+    });
   }
 
   async function runItemSpecifics() {
@@ -244,8 +302,18 @@
 
   let pendingSkuInfo = null;
 
+  // 今日の日付をYYMMDD形式で返す（SKUコードの初期値に使用）
+  function getTodayCode() {
+    const now = new Date();
+    const yy = String(now.getFullYear()).slice(-2);
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    return `${yy}${mm}${dd}`;
+  }
+
   function promptSkuInfo() {
-    const skuCode = window.prompt('SKUコードを入力してください', pendingSkuInfo ? pendingSkuInfo.skuCode : '');
+    const defaultSkuCode = pendingSkuInfo ? pendingSkuInfo.skuCode : `AI${getTodayCode()}`;
+    const skuCode = window.prompt('SKUコードを入力してください', defaultSkuCode);
     if (skuCode === null) return null;
 
     const startStr = window.prompt('開始番号を入力してください', pendingSkuInfo ? String(pendingSkuInfo.startNumber) : '1');
