@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.7
+// @version      1.8
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -130,8 +130,10 @@
 
     await sleep(waitMs);
 
-    const confirmButtons = Array.from(document.querySelectorAll('button')).filter((b) =>
-      /確認|適用|保存|実行|OK|はい/.test(b.textContent.trim())
+    // 部分一致だと「フィルターを保存」等の無関係なボタンを誤検出するため完全一致のみ対象にする
+    const CONFIRM_TEXTS = ['確定', '確認', '適用', '保存', '実行', 'OK', 'はい'];
+    const confirmButtons = Array.from(document.querySelectorAll('button')).filter(
+      (b) => b.offsetParent !== null && CONFIRM_TEXTS.includes(b.textContent.trim())
     );
 
     if (confirmButtons.length > 0) {
@@ -236,20 +238,15 @@
     await menuConfirm('販売価格に応じてShippingを割り当て', 8000);
   }
 
-  // 「Store Category」ラベルを持つコンボボックスの開閉トリガーを探す
+  // 未選択時に表示される「オプションを選択」プレースホルダーからStore Categoryの開閉トリガーを探す
   function findStoreCategoryTrigger() {
-    const labelEl = Array.from(document.querySelectorAll('label, div, span')).find(
-      (el) => el.textContent.trim() === 'Store Category' && el.children.length === 0
+    const placeholderEls = Array.from(document.querySelectorAll('button, div, span')).filter(
+      (el) => el.children.length === 0 && el.textContent.trim() === 'オプションを選択' && el.offsetParent !== null
     );
-    if (!labelEl) return null;
+    if (placeholderEls.length === 0) return null;
 
-    let container = labelEl.closest('div');
-    for (let i = 0; i < 5 && container; i++) {
-      const trigger = container.querySelector('input[type="text"], [role="combobox"], button');
-      if (trigger) return trigger;
-      container = container.parentElement;
-    }
-    return null;
+    const el = placeholderEls[placeholderEls.length - 1];
+    return el.closest('button, [role="button"], [tabindex]') || el;
   }
 
   // Store Categoryコンボボックスを開き、検索欄に入力して候補をクリックする
@@ -272,7 +269,7 @@
     }
 
     const options = Array.from(document.querySelectorAll('[role="option"], li, div')).filter(
-      (el) => el.children.length === 0 && el.textContent.trim() === categoryName
+      (el) => el.children.length === 0 && el.offsetParent !== null && el.textContent.trim() === categoryName
     );
 
     if (options.length === 0) {
@@ -280,7 +277,7 @@
       return false;
     }
 
-    fireFullClick(options[0]);
+    fireFullClick(options[options.length - 1]);
     log(`Store Categoryを「${categoryName}」に設定しました`);
     await sleep(300);
     return true;
