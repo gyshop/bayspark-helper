@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.12
+// @version      1.13
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -205,11 +205,7 @@
     input.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
-  function padNumber(num, digits) {
-    return String(num).padStart(digits, '0');
-  }
-
-  // SKU欄を見つけてスクロールしてから、連番でSKUコードを入力する
+  // SKU欄を見つけてスクロールしてから、連番でSKUコードを入力する（例: AI260627-1, AI260627-2 ...）
   async function fillSkuSequence(skuCode, startNumber) {
     const inputs = findSkuInputs();
     if (inputs.length === 0) {
@@ -219,15 +215,13 @@
 
     log(`SKU欄 ${inputs.length} 件に連番入力します（開始番号: ${startNumber}）`);
 
-    const digits = String(startNumber).length;
-
     for (let i = 0; i < inputs.length; i++) {
       const input = inputs[i];
       input.scrollIntoView({ behavior: 'smooth', block: 'center' });
       await sleep(100);
 
       const seq = startNumber + i;
-      const value = `${skuCode}${padNumber(seq, Math.max(digits, String(seq).length))}`;
+      const value = `${skuCode}-${seq}`;
       setInputValue(input, value);
 
       setProgress(`SKU入力中: ${i + 1} / ${inputs.length}`);
