@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.11
+// @version      1.12
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -87,6 +87,18 @@
 
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  // checkFn が真値を返すまでintervalMsごとに再試行する（Livewireのサーバー往復で
+  // 要素がすぐに現れない場合への対応）
+  async function waitFor(checkFn, timeoutMs = 5000, intervalMs = 200) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const result = checkFn();
+      if (result) return result;
+      await sleep(intervalMs);
+    }
+    return null;
   }
 
   function fireFullClick(el) {
@@ -242,7 +254,6 @@
   // クリック対象（.choices__inner = selectの直接の親）と、検索欄/候補を探す範囲（その親）を取得する
   function findStoreCategoryParts() {
     const selects = Array.from(document.querySelectorAll('select[id$="store_category_name"]'));
-    log(`Store Category用select候補: ${selects.length}件`);
 
     for (const select of selects) {
       const inner = select.closest('.choices__inner') || select.parentElement;
@@ -258,9 +269,11 @@
   async function setStoreCategory(categoryName) {
     log(`Store Categoryを「${categoryName}」に設定します`);
 
-    const parts = findStoreCategoryParts();
+    // モーダルはLivewireのサーバー往復を経て描画されるため、即座には現れないことがある
+    const parts = await waitFor(() => findStoreCategoryParts(), 5000, 200);
     if (!parts) {
-      log('Store Category欄が見つかりませんでした');
+      const count = document.querySelectorAll('select[id$="store_category_name"]').length;
+      log(`Store Category欄が見つかりませんでした（select候補: ${count}件）`);
       return false;
     }
 
