@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.14
+// @version      1.15
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -557,24 +557,39 @@
     return panel;
   }
 
-  function createToggleButton() {
+  // inline: true の場合、ヘッダーの並びに収まる小さめのインラインボタンとして描画する
+  function createToggleButton(inline) {
     const btn = document.createElement('button');
     btn.textContent = 'BaySpark Helper';
-    btn.style.cssText = [
-      'position:fixed',
-      'top:10px',
-      'right:10px',
-      'padding:8px 14px',
-      'background:#2563eb',
-      'color:#fff',
-      'border:none',
-      'border-radius:6px',
-      'font-size:13px',
-      'font-weight:bold',
-      'cursor:pointer',
-      'z-index:999999',
-      'box-shadow:0 2px 6px rgba(0,0,0,0.3)',
-    ].join(';');
+
+    btn.style.cssText = inline
+      ? [
+          'padding:6px 12px',
+          'background:#2563eb',
+          'color:#fff',
+          'border:none',
+          'border-radius:6px',
+          'font-size:12px',
+          'font-weight:bold',
+          'cursor:pointer',
+          'margin-right:8px',
+          'box-shadow:0 1px 3px rgba(0,0,0,0.3)',
+        ].join(';')
+      : [
+          'position:fixed',
+          'top:10px',
+          'right:10px',
+          'padding:8px 14px',
+          'background:#2563eb',
+          'color:#fff',
+          'border:none',
+          'border-radius:6px',
+          'font-size:13px',
+          'font-weight:bold',
+          'cursor:pointer',
+          'z-index:999999',
+          'box-shadow:0 2px 6px rgba(0,0,0,0.3)',
+        ].join(';');
 
     let panel = null;
 
@@ -591,13 +606,33 @@
     return btn;
   }
 
+  // ヘッダーのお知らせ（ベル）ボタンの直前にトグルボタンを差し込む。
+  // 見つからない場合は右上固定表示にフォールバックする
+  async function mountToggleButton() {
+    const bellBtn = await waitFor(
+      () => document.querySelector('.fi-topbar-database-notifications-btn'),
+      5000,
+      200
+    );
+
+    if (bellBtn) {
+      const bellWrapper = bellBtn.closest('.inline-block') || bellBtn.parentElement;
+      const topbarContainer = bellWrapper.parentElement;
+      const toggleBtn = createToggleButton(true);
+      topbarContainer.insertBefore(toggleBtn, bellWrapper);
+      return;
+    }
+
+    const toggleBtn = createToggleButton(false);
+    document.body.appendChild(toggleBtn);
+  }
+
   /* ======================================================================
    * 初期化
    * ==================================================================== */
 
   function init() {
-    const toggleBtn = createToggleButton();
-    document.body.appendChild(toggleBtn);
+    mountToggleButton();
     console.log('[BaySpark Helper] 起動しました (v1.6)');
   }
 
