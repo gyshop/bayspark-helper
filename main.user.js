@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.13
+// @version      1.14
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -361,6 +361,9 @@
     }
 
     log('一括処理を開始します');
+
+    // SKU入力ポップアップを閉じた直後はページ側の状態が不安定なため、少し待機する
+    await sleep(800);
 
     await runPriceSuggestion();
     await runShippingAssignment();
