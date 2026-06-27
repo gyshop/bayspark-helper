@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.16
+// @version      1.17
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -240,7 +240,28 @@
     await menuConfirm('販売価格提案', 8000);
   }
 
+  // 1つの一括操作が完了すると行の選択がリセットされるため、次の操作の前にページ上の
+  // 行を再選択する（チェックボックスの見た目は残るが実際の選択は空になっていることがある）
+  function reselectAllRowsOnPage() {
+    const checkbox = document.querySelector('.fi-ta-page-checkbox');
+    if (!checkbox) {
+      log('全選択チェックボックスが見つかりませんでした');
+      return;
+    }
+    if (!checkbox.checked) {
+      fireFullClick(checkbox);
+      log('行の選択を再設定しました');
+    } else {
+      // 一度外して入れ直すことで、見た目はチェック済みでも実体が空の状態を復元する
+      fireFullClick(checkbox);
+      fireFullClick(checkbox);
+      log('行の選択を再設定しました');
+    }
+  }
+
   async function runShippingAssignment() {
+    reselectAllRowsOnPage();
+    await sleep(300);
     await menuConfirm('販売価格に応じてShippingを割り当て', 8000);
   }
 
@@ -298,12 +319,16 @@
   }
 
   async function runCategoryChange() {
+    reselectAllRowsOnPage();
+    await sleep(300);
     await menuConfirm('ストアカテゴリー一括変更', settings.categoryWaitMs, async () => {
       await setStoreCategory(settings.categoryName);
     });
   }
 
   async function runItemSpecifics() {
+    reselectAllRowsOnPage();
+    await sleep(300);
     await menuConfirm('Item Specificsを作成', settings.specificsWaitMs);
   }
 
@@ -499,7 +524,7 @@
     const panel = document.createElement('div');
     panel.style.cssText = [
       'position:fixed',
-      'top:50px',
+      'top:100px',
       'right:10px',
       'width:260px',
       'max-height:80vh',
