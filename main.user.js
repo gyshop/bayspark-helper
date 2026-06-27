@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.17
+// @version      1.18
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -527,7 +527,7 @@
       'top:100px',
       'right:10px',
       'width:260px',
-      'max-height:80vh',
+      'max-height:50vh',
       'overflow-y:auto',
       'background:#fff',
       'border:1px solid #999',
