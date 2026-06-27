@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.20
+// @version      1.21
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -122,19 +122,26 @@
 
   // 「販売価格提案」「販売価格に応じてShippingを割り当て」「ストアカテゴリー一括変更」は
   // 「商品情報編集」ドロップダウンの中にあり、閉じている間は非表示（offsetParentがnull）になる。
-  // 候補が見つかっても非表示の場合は、ドロップダウンを開いてから再検索する
+  // 非表示の項目を見えないままクリックすると何も起きないことがあるため、ドロップダウンを開いた後、
+  // 実際に表示されるまで待ってからクリックする
   async function openMenuItem(text) {
     let target = findMenuCandidate(text);
 
-    if (!target || target.offsetParent === null) {
-      const dropdownTrigger = Array.from(document.querySelectorAll('button')).find(
-        (b) => b.textContent.trim() === '商品情報編集'
-      );
-      if (dropdownTrigger) {
-        fireFullClick(dropdownTrigger);
-        await sleep(400);
-        target = findMenuCandidate(text);
-      }
+    if (target && target.offsetParent !== null) {
+      fireFullClick(target);
+      return true;
+    }
+
+    const dropdownTrigger = Array.from(document.querySelectorAll('button')).find(
+      (b) => b.textContent.trim() === '商品情報編集'
+    );
+
+    if (dropdownTrigger) {
+      fireFullClick(dropdownTrigger);
+      target = await waitFor(() => {
+        const candidate = findMenuCandidate(text);
+        return candidate && candidate.offsetParent !== null ? candidate : null;
+      }, 3000, 150);
     }
 
     if (!target) {
