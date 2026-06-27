@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.15
+// @version      1.16
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -365,10 +365,18 @@
     // SKU入力ポップアップを閉じた直後はページ側の状態が不安定なため、少し待機する
     await sleep(800);
 
+    // 各処理の直後は行選択状態の同期がまだ追いついていないことがあるため、間に待機を入れる
     await runPriceSuggestion();
+    await sleep(1500);
+
     await runShippingAssignment();
+    await sleep(1500);
+
     await runCategoryChange();
+    await sleep(1500);
+
     await runItemSpecifics();
+    await sleep(1500);
 
     log('SKU連番入力を実行します');
     await fillSkuSequence(info.skuCode, info.startNumber);
@@ -557,39 +565,26 @@
     return panel;
   }
 
-  // inline: true の場合、ヘッダーの並びに収まる小さめのインラインボタンとして描画する
-  function createToggleButton(inline) {
+  // document.body直下に固定表示する。BaySpark側（Livewire）が管理するDOMの内部に置くと、
+  // 定期的な再描画（お知らせのwire:poll等）でボタンが消えてしまうため、body直下に置く
+  function createToggleButton() {
     const btn = document.createElement('button');
     btn.textContent = 'BaySpark Helper';
-
-    btn.style.cssText = inline
-      ? [
-          'padding:6px 12px',
-          'background:#2563eb',
-          'color:#fff',
-          'border:none',
-          'border-radius:6px',
-          'font-size:12px',
-          'font-weight:bold',
-          'cursor:pointer',
-          'margin-right:8px',
-          'box-shadow:0 1px 3px rgba(0,0,0,0.3)',
-        ].join(';')
-      : [
-          'position:fixed',
-          'top:10px',
-          'right:10px',
-          'padding:8px 14px',
-          'background:#2563eb',
-          'color:#fff',
-          'border:none',
-          'border-radius:6px',
-          'font-size:13px',
-          'font-weight:bold',
-          'cursor:pointer',
-          'z-index:999999',
-          'box-shadow:0 2px 6px rgba(0,0,0,0.3)',
-        ].join(';');
+    btn.style.cssText = [
+      'position:fixed',
+      'top:56px',
+      'right:10px',
+      'padding:8px 14px',
+      'background:#2563eb',
+      'color:#fff',
+      'border:none',
+      'border-radius:6px',
+      'font-size:13px',
+      'font-weight:bold',
+      'cursor:pointer',
+      'z-index:999999',
+      'box-shadow:0 2px 6px rgba(0,0,0,0.3)',
+    ].join(';');
 
     let panel = null;
 
@@ -606,33 +601,13 @@
     return btn;
   }
 
-  // ヘッダーのお知らせ（ベル）ボタンの直前にトグルボタンを差し込む。
-  // 見つからない場合は右上固定表示にフォールバックする
-  async function mountToggleButton() {
-    const bellBtn = await waitFor(
-      () => document.querySelector('.fi-topbar-database-notifications-btn'),
-      5000,
-      200
-    );
-
-    if (bellBtn) {
-      const bellWrapper = bellBtn.closest('.inline-block') || bellBtn.parentElement;
-      const topbarContainer = bellWrapper.parentElement;
-      const toggleBtn = createToggleButton(true);
-      topbarContainer.insertBefore(toggleBtn, bellWrapper);
-      return;
-    }
-
-    const toggleBtn = createToggleButton(false);
-    document.body.appendChild(toggleBtn);
-  }
-
   /* ======================================================================
    * 初期化
    * ==================================================================== */
 
   function init() {
-    mountToggleButton();
+    const toggleBtn = createToggleButton();
+    document.body.appendChild(toggleBtn);
     console.log('[BaySpark Helper] 起動しました (v1.6)');
   }
 
