@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.18
+// @version      1.19
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -142,14 +142,32 @@
 
     await sleep(waitMs);
 
-    // 部分一致だと「フィルターを保存」等の無関係なボタンを誤検出するため完全一致のみ対象にする
+    // 部分一致だと「フィルターを保存」等の無関係なボタンを誤検出するため完全一致のみ対象にする。
+    // さらに、前のモーダルが閉じきらず古い確定ボタンが残っているケースを避けるため、
+    // 「キャンセル」ボタンと同じ並び（同じ親要素）にある確定ボタンのみを対象にする
     const CONFIRM_TEXTS = ['確定', '確認', '適用', '保存', '実行', 'OK', 'はい'];
-    const confirmButtons = Array.from(document.querySelectorAll('button')).filter(
-      (b) => b.offsetParent !== null && CONFIRM_TEXTS.includes(b.textContent.trim())
+
+    const cancelButtons = Array.from(document.querySelectorAll('button')).filter(
+      (b) => b.offsetParent !== null && b.textContent.trim() === 'キャンセル'
     );
 
-    if (confirmButtons.length > 0) {
-      fireFullClick(confirmButtons[confirmButtons.length - 1]);
+    let confirmButton = null;
+    if (cancelButtons.length > 0) {
+      const activeCancel = cancelButtons[cancelButtons.length - 1];
+      confirmButton = Array.from(activeCancel.parentElement.querySelectorAll('button')).find(
+        (b) => CONFIRM_TEXTS.includes(b.textContent.trim())
+      );
+    }
+
+    if (!confirmButton) {
+      const confirmButtons = Array.from(document.querySelectorAll('button')).filter(
+        (b) => b.offsetParent !== null && CONFIRM_TEXTS.includes(b.textContent.trim())
+      );
+      confirmButton = confirmButtons[confirmButtons.length - 1];
+    }
+
+    if (confirmButton) {
+      fireFullClick(confirmButton);
       log(`${menuText} の確認ボタンをクリックしました`);
     } else {
       log(`${menuText} に確認ボタンが見つかりませんでした（待機のみ実施）`);
