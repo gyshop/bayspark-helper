@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.19
+// @version      1.20
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -111,12 +111,30 @@
   }
 
   // テキストの完全一致を優先し、見つからない場合のみ includes で検索する
-  function openMenuItem(text) {
+  function findMenuCandidate(text) {
     const candidates = Array.from(document.querySelectorAll('button, a, [role="menuitem"], li'));
-
     let target = candidates.find((el) => el.textContent.trim() === text);
     if (!target) {
       target = candidates.find((el) => el.textContent.includes(text));
+    }
+    return target;
+  }
+
+  // 「販売価格提案」「販売価格に応じてShippingを割り当て」「ストアカテゴリー一括変更」は
+  // 「商品情報編集」ドロップダウンの中にあり、閉じている間は非表示（offsetParentがnull）になる。
+  // 候補が見つかっても非表示の場合は、ドロップダウンを開いてから再検索する
+  async function openMenuItem(text) {
+    let target = findMenuCandidate(text);
+
+    if (!target || target.offsetParent === null) {
+      const dropdownTrigger = Array.from(document.querySelectorAll('button')).find(
+        (b) => b.textContent.trim() === '商品情報編集'
+      );
+      if (dropdownTrigger) {
+        fireFullClick(dropdownTrigger);
+        await sleep(400);
+        target = findMenuCandidate(text);
+      }
     }
 
     if (!target) {
@@ -132,7 +150,7 @@
   // onOpened を渡すと、モーダル表示後・待機前に追加操作（例: カテゴリ選択）を実行できる
   async function menuConfirm(menuText, waitMs, onOpened) {
     log(`実行: ${menuText}`);
-    const opened = openMenuItem(menuText);
+    const opened = await openMenuItem(menuText);
     if (!opened) return false;
 
     if (typeof onOpened === 'function') {
