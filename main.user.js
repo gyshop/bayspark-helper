@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.21
+// @version      1.22
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -198,7 +198,7 @@
       log(`${menuText} に確認ボタンが見つかりませんでした（待機のみ実施）`);
     }
 
-    await sleep(500);
+    await sleep(1200);
     return true;
   }
 
@@ -284,8 +284,9 @@
   }
 
   // 1つの一括操作が完了すると行の選択がリセットされるため、次の操作の前にページ上の
-  // 行を再選択する（チェックボックスの見た目は残るが実際の選択は空になっていることがある）
-  function reselectAllRowsOnPage() {
+  // 行を再選択する（チェックボックスの見た目は残るが実際の選択は空になっていることがある）。
+  // 外す→入れ直すクリックの間にLivewireの状態更新が追いつく時間を空ける
+  async function reselectAllRowsOnPage() {
     const checkbox = document.querySelector('.fi-ta-page-checkbox');
     if (!checkbox) {
       log('全選択チェックボックスが見つかりませんでした');
@@ -293,18 +294,19 @@
     }
     if (!checkbox.checked) {
       fireFullClick(checkbox);
-      log('行の選択を再設定しました');
     } else {
       // 一度外して入れ直すことで、見た目はチェック済みでも実体が空の状態を復元する
       fireFullClick(checkbox);
+      await sleep(400);
       fireFullClick(checkbox);
-      log('行の選択を再設定しました');
     }
+    await sleep(400);
+    log('行の選択を再設定しました');
   }
 
   async function runShippingAssignment() {
-    reselectAllRowsOnPage();
-    await sleep(300);
+    await reselectAllRowsOnPage();
+    await sleep(500);
     await menuConfirm('販売価格に応じてShippingを割り当て', 8000);
   }
 
@@ -362,16 +364,16 @@
   }
 
   async function runCategoryChange() {
-    reselectAllRowsOnPage();
-    await sleep(300);
+    await reselectAllRowsOnPage();
+    await sleep(500);
     await menuConfirm('ストアカテゴリー一括変更', settings.categoryWaitMs, async () => {
       await setStoreCategory(settings.categoryName);
     });
   }
 
   async function runItemSpecifics() {
-    reselectAllRowsOnPage();
-    await sleep(300);
+    await reselectAllRowsOnPage();
+    await sleep(500);
     await menuConfirm('Item Specificsを作成', settings.specificsWaitMs);
   }
 
@@ -435,16 +437,16 @@
 
     // 各処理の直後は行選択状態の同期がまだ追いついていないことがあるため、間に待機を入れる
     await runPriceSuggestion();
-    await sleep(1500);
+    await sleep(2500);
 
     await runShippingAssignment();
-    await sleep(1500);
+    await sleep(2500);
 
     await runCategoryChange();
-    await sleep(1500);
+    await sleep(2500);
 
     await runItemSpecifics();
-    await sleep(1500);
+    await sleep(2500);
 
     log('SKU連番入力を実行します');
     await fillSkuSequence(info.skuCode, info.startNumber);
