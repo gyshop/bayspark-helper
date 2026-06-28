@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.22
+// @version      1.23
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -172,30 +172,43 @@
     // 「キャンセル」ボタンと同じ並び（同じ親要素）にある確定ボタンのみを対象にする
     const CONFIRM_TEXTS = ['確定', '確認', '適用', '保存', '実行', 'OK', 'はい'];
 
-    const cancelButtons = Array.from(document.querySelectorAll('button')).filter(
-      (b) => b.offsetParent !== null && b.textContent.trim() === 'キャンセル'
-    );
-
-    let confirmButton = null;
-    if (cancelButtons.length > 0) {
-      const activeCancel = cancelButtons[cancelButtons.length - 1];
-      confirmButton = Array.from(activeCancel.parentElement.querySelectorAll('button')).find(
-        (b) => CONFIRM_TEXTS.includes(b.textContent.trim())
+    function findConfirmButton() {
+      const cancelButtons = Array.from(document.querySelectorAll('button')).filter(
+        (b) => b.offsetParent !== null && b.textContent.trim() === 'キャンセル'
       );
-    }
 
-    if (!confirmButton) {
+      if (cancelButtons.length > 0) {
+        const activeCancel = cancelButtons[cancelButtons.length - 1];
+        const found = Array.from(activeCancel.parentElement.querySelectorAll('button')).find(
+          (b) => CONFIRM_TEXTS.includes(b.textContent.trim())
+        );
+        if (found) return found;
+      }
+
       const confirmButtons = Array.from(document.querySelectorAll('button')).filter(
         (b) => b.offsetParent !== null && CONFIRM_TEXTS.includes(b.textContent.trim())
       );
-      confirmButton = confirmButtons[confirmButtons.length - 1];
+      return confirmButtons[confirmButtons.length - 1] || null;
     }
 
-    if (confirmButton) {
+    // クリック後、モーダルが実際に閉じた（確定ボタンが消えた）ことを確認する。
+    // 消えていなければ古いボタンを誤クリックしていた可能性があるため再試行する
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const confirmButton = findConfirmButton();
+
+      if (!confirmButton) {
+        log(`${menuText} に確認ボタンが見つかりませんでした（待機のみ実施）`);
+        break;
+      }
+
       fireFullClick(confirmButton);
-      log(`${menuText} の確認ボタンをクリックしました`);
-    } else {
-      log(`${menuText} に確認ボタンが見つかりませんでした（待機のみ実施）`);
+      log(`${menuText} の確認ボタンをクリックしました（${attempt + 1}回目）`);
+
+      const closed = await waitFor(() => (findConfirmButton() ? null : true), 4000, 200);
+      if (closed) {
+        break;
+      }
+      log(`${menuText} のモーダルが閉じませんでした。再試行します`);
     }
 
     await sleep(1200);
@@ -330,7 +343,7 @@
     log(`Store Categoryを「${categoryName}」に設定します`);
 
     // モーダルはLivewireのサーバー往復を経て描画されるため、即座には現れないことがある
-    const parts = await waitFor(() => findStoreCategoryParts(), 5000, 200);
+    const parts = await waitFor(() => findStoreCategoryParts(), 10000, 200);
     if (!parts) {
       const count = document.querySelectorAll('select[id$="store_category_name"]').length;
       log(`Store Category欄が見つかりませんでした（select候補: ${count}件）`);
