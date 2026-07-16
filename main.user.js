@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.23
+// @version      1.24
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -376,11 +376,22 @@
     return true;
   }
 
+  function promptCategoryName() {
+    const name = window.prompt('ストアカテゴリーを入力してください', settings.categoryName);
+    if (name === null) return null;
+    return name.trim() || settings.categoryName;
+  }
+
   async function runCategoryChange() {
+    const categoryName = promptCategoryName();
+    if (!categoryName) {
+      log('カテゴリ選択がキャンセルされました');
+      return;
+    }
     await reselectAllRowsOnPage();
     await sleep(500);
     await menuConfirm('ストアカテゴリー一括変更', settings.categoryWaitMs, async () => {
-      await setStoreCategory(settings.categoryName);
+      await setStoreCategory(categoryName);
     });
   }
 
@@ -443,6 +454,12 @@
       return;
     }
 
+    const categoryName = promptCategoryName();
+    if (!categoryName) {
+      log('カテゴリ選択がキャンセルされたため、一括処理を中止しました');
+      return;
+    }
+
     log('一括処理を開始します');
 
     // SKU入力ポップアップを閉じた直後はページ側の状態が不安定なため、少し待機する
@@ -455,7 +472,11 @@
     await runShippingAssignment();
     await sleep(2500);
 
-    await runCategoryChange();
+    await reselectAllRowsOnPage();
+    await sleep(500);
+    await menuConfirm('ストアカテゴリー一括変更', settings.categoryWaitMs, async () => {
+      await setStoreCategory(categoryName);
+    });
     await sleep(2500);
 
     await runItemSpecifics();
