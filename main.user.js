@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.24
+// @version      1.25
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -376,14 +376,69 @@
     return true;
   }
 
+  const CATEGORY_LIST = [
+    'Bags',
+    'Wallets & Small Leather Goods',
+    'Clothing',
+    'Watches',
+    'Accessories',
+    'Pokemon',
+    'Dust Bags / Storage Bags',
+    'Other',
+  ];
+
   function promptCategoryName() {
-    const name = window.prompt('ストアカテゴリーを入力してください', settings.categoryName);
-    if (name === null) return null;
-    return name.trim() || settings.categoryName;
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.style.cssText = [
+        'position:fixed', 'top:0', 'left:0', 'width:100%', 'height:100%',
+        'background:rgba(0,0,0,0.4)', 'z-index:2000000',
+        'display:flex', 'align-items:center', 'justify-content:center',
+      ].join(';');
+
+      const box = document.createElement('div');
+      box.style.cssText = [
+        'background:#fff', 'padding:20px', 'border-radius:8px',
+        'width:300px', 'font-family:sans-serif', 'font-size:14px',
+      ].join(';');
+
+      const title = document.createElement('div');
+      title.textContent = '👜 ストアカテゴリーを選択';
+      title.style.cssText = 'font-weight:bold;font-size:15px;margin-bottom:12px;';
+      box.appendChild(title);
+
+      CATEGORY_LIST.forEach((cat) => {
+        const btn = document.createElement('button');
+        btn.textContent = cat;
+        const isDefault = cat === settings.categoryName;
+        btn.style.cssText = [
+          'display:block', 'width:100%', 'margin:4px 0', 'padding:8px 10px',
+          'font-size:13px', 'text-align:left', 'border-radius:4px', 'cursor:pointer',
+          isDefault
+            ? 'background:#2563eb;color:#fff;border:2px solid #2563eb;font-weight:bold;'
+            : 'background:#f7f7f7;color:#333;border:1px solid #ccc;',
+        ].join(';');
+        btn.addEventListener('click', () => { overlay.remove(); resolve(cat); });
+        box.appendChild(btn);
+      });
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.textContent = 'キャンセル';
+      cancelBtn.style.cssText = [
+        'display:block', 'width:100%', 'margin-top:10px', 'padding:8px',
+        'font-size:13px', 'border:1px solid #ccc', 'border-radius:4px',
+        'background:#fff', 'cursor:pointer', 'color:#555',
+      ].join(';');
+      cancelBtn.addEventListener('click', () => { overlay.remove(); resolve(null); });
+      box.appendChild(cancelBtn);
+
+      overlay.appendChild(box);
+      document.body.appendChild(overlay);
+    });
   }
 
   async function runCategoryChange() {
-    const categoryName = promptCategoryName();
+    const categoryName = await promptCategoryName();
     if (!categoryName) {
       log('カテゴリ選択がキャンセルされました');
       return;
@@ -454,7 +509,7 @@
       return;
     }
 
-    const categoryName = promptCategoryName();
+    const categoryName = await promptCategoryName();
     if (!categoryName) {
       log('カテゴリ選択がキャンセルされたため、一括処理を中止しました');
       return;
