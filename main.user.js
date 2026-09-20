@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.25
+// @version      1.26
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
-// @grant        none
+// @grant        GM_xmlhttpRequest
+// @connect      api.anthropic.com
 // @updateURL    https://raw.githubusercontent.com/gyshop/bayspark-helper/main/main.user.js
 // @downloadURL  https://raw.githubusercontent.com/gyshop/bayspark-helper/main/main.user.js
 // ==/UserScript==
@@ -23,6 +24,7 @@
     categoryName: 'Bags',
     categoryWaitMs: 8000,
     specificsWaitMs: 8000,
+    claudeApiKey: '',
   };
 
   function loadSettings() {
@@ -255,7 +257,10 @@
   }
 
   function setInputValue(input, value) {
-    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    const proto = input.tagName === 'TEXTAREA'
+      ? window.HTMLTextAreaElement.prototype
+      : window.HTMLInputElement.prototype;
+    const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value').set;
     nativeSetter.call(input, value);
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
@@ -457,6 +462,288 @@
   }
 
   /* ======================================================================
+   * AI コンディション入力
+   * ==================================================================== */
+
+  const AI_CONDITION_SYSTEM_PROMPT = `You are an expert at extracting and translating the physical condition of second-hand goods for eBay listings.
+
+TASK: Read the Japanese product description and extract ONLY condition-related information, then write it in concise, natural English for eBay buyers.
+
+INCLUDE (only if explicitly stated):
+- Signs of use, scratches, scuffs, stains, discoloration, fading
+- Corner wear, tears, cracks, peeling, stickiness, deformation
+- Hardware condition (scratches, tarnish, damage)
+- Interior and exterior condition
+- Handle/strap condition
+- Zipper/closure function
+- Odor
+- Missing parts or functional issues
+- Damage to included accessories (only if damage is specifically described)
+
+EXCLUDE:
+- Brand name, model name, color, size, dimensions, material
+- List of included accessories (unless damage is mentioned)
+- Shipping info, purchase source
+- Authenticity disclaimers
+- Rank grade criteria tables (e.g. "S rank means like new...")
+- General notes and disclaimers
+- Phrases like "please check photos"
+
+CRITICAL RULES:
+- Use ONLY information explicitly stated in the description — never infer or speculate
+- Do NOT add defects not mentioned
+- Do NOT omit defects that are mentioned
+- Do NOT infer condition from a rank grade (e.g. "Rank C" does not mean heavy damage)
+- Output English only, no Japanese
+- Organize by part when possible (e.g. Exterior:, Interior:, Handle:, Bottom:, Hardware:, Odor:)
+- No preamble, no explanation — output only the condition text ready to paste
+
+RANK DETECTION:
+If the description clearly states this specific item's rank (e.g. "商品ランク:C", "ランク B", "Condition Rank: A"), add one final line:
+RANK: [letter]
+Only do this when the rank is unambiguously stated as the item's own grade — NOT from a rank criteria table.`;
+
+  async function callClaudeAPI(productDescription) {
+    const apiKey = settings.claudeApiKey;
+    if (!apiKey) {
+      throw new Error('Claude APIキーが設定されていません。⚙設定からAPIキーを入力してください。');
+    }
+
+    // 前処理: HTMLタグ・連続空白を除去してトークン数を削減する
+    const cleaned = productDescription
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+
+    if (!cleaned || cleaned.length < 10) {
+      throw new Error('商品説明が空か短すぎます');
+    }
+
+    return new Promise((resolve, reject) => {
+      GM_xmlhttpRequest({
+        method: 'POST',
+        url: 'https://api.anthropic.com/v1/messages',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        data: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 600,
+          system: AI_CONDITION_SYSTEM_PROMPT,
+          messages: [{ role: 'user', content: `Product description:\n${cleaned}` }],
+        }),
+        onload(res) {
+          if (res.status !== 200) {
+            reject(new Error(`API エラー (${res.status}): ${res.responseText.slice(0, 200)}`));
+            return;
+          }
+          try {
+            const data = JSON.parse(res.responseText);
+            const text = data.content?.[0]?.text?.trim();
+            if (!text) { reject(new Error('AIから有効な回答が得られませんでした')); return; }
+            resolve(text);
+          } catch (e) {
+            reject(new Error(`APIレスポンス解析エラー: ${e.message}`));
+          }
+        },
+        onerror() {
+          reject(new Error('API通信エラーが発生しました'));
+        },
+      });
+    });
+  }
+
+  // 商品説明欄を取得する。FilamentのリッチテキストエディタはTipTap等のcontenteditable、
+  // またはtextareaの場合がある。labelテキスト「商品説明」で紐付け、なければ最大の入力欄を返す
+  function getProductDescription() {
+    const labels = Array.from(document.querySelectorAll('label'));
+    const descLabel = labels.find((l) => l.textContent.trim().includes('商品説明'));
+
+    if (descLabel) {
+      const forId = descLabel.getAttribute('for');
+      if (forId) {
+        const el = document.getElementById(forId);
+        if (el) return el.value || el.innerText || '';
+      }
+      const parent = descLabel.closest('.fi-fo-field-wrp, .fi-fo-field, [data-field], div');
+      if (parent) {
+        const ta = parent.querySelector('textarea');
+        if (ta && ta.offsetParent !== null) return ta.value;
+        const ce = parent.querySelector('[contenteditable="true"]');
+        if (ce && ce.offsetParent !== null) return ce.innerText;
+      }
+    }
+
+    // フォールバック: 表示中の最大 textarea
+    const textareas = Array.from(document.querySelectorAll('textarea')).filter(
+      (t) => t.offsetParent !== null
+    );
+    if (textareas.length > 0) {
+      const largest = textareas.reduce((a, b) => (a.value.length >= b.value.length ? a : b));
+      if (largest.value.length > 20) return largest.value;
+    }
+
+    // フォールバック: 表示中の最大 contenteditable
+    const editables = Array.from(document.querySelectorAll('[contenteditable="true"]')).filter(
+      (e) => e.offsetParent !== null
+    );
+    if (editables.length > 0) {
+      const largest = editables.reduce((a, b) => (a.innerText.length >= b.innerText.length ? a : b));
+      if (largest.innerText.length > 20) return largest.innerText;
+    }
+
+    return null;
+  }
+
+  // ランク情報タブを探す
+  function findRankInfoTab() {
+    const candidates = Array.from(document.querySelectorAll('[role="tab"], button, a, li, span'));
+    return candidates.find(
+      (el) => el.textContent.trim() === 'ランク情報' && el.offsetParent !== null
+    ) || null;
+  }
+
+  // 「補足情報」ラベルに紐付く textarea/input を探す
+  function findSupplementaryInput() {
+    const labels = Array.from(document.querySelectorAll('label'));
+    const label = labels.find((l) => l.textContent.trim().includes('補足情報'));
+
+    if (label) {
+      const forId = label.getAttribute('for');
+      if (forId) {
+        const el = document.getElementById(forId);
+        if (el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT')) return el;
+      }
+      const parent = label.closest('.fi-fo-field-wrp, .fi-fo-field, [data-field], div');
+      if (parent) {
+        const ta = parent.querySelector('textarea');
+        if (ta) return ta;
+        const inp = parent.querySelector('input[type="text"]');
+        if (inp) return inp;
+      }
+      // label の次の兄弟要素を辿る
+      let sib = label.nextElementSibling;
+      while (sib) {
+        if (sib.tagName === 'TEXTAREA' || sib.tagName === 'INPUT') return sib;
+        const found = sib.querySelector('textarea, input[type="text"]');
+        if (found) return found;
+        sib = sib.nextElementSibling;
+      }
+    }
+    return null;
+  }
+
+  // 「ランク」ラベルに紐付く select を探す（「ランク情報」「補足情報」とは区別する）
+  function findRankSelect() {
+    const labels = Array.from(document.querySelectorAll('label'));
+    const label = labels.find((l) => {
+      const text = l.textContent.trim();
+      return text === 'ランク' || (text.startsWith('ランク') && !text.includes('情報') && !text.includes('補足'));
+    });
+    if (!label) return null;
+
+    const forId = label.getAttribute('for');
+    if (forId) {
+      const el = document.getElementById(forId);
+      if (el && el.tagName === 'SELECT') return el;
+    }
+    const parent = label.closest('.fi-fo-field-wrp, .fi-fo-field, [data-field], div');
+    if (parent) {
+      const sel = parent.querySelector('select');
+      if (sel) return sel;
+    }
+    return null;
+  }
+
+  function setSelectValue(select, value) {
+    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
+    nativeSetter.call(select, value);
+    select.dispatchEvent(new Event('input', { bubbles: true }));
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  async function runAiConditionInput() {
+    log('AIコンディション入力を開始します');
+
+    // 1. 商品説明を取得
+    const description = getProductDescription();
+    if (!description || description.trim().length < 10) {
+      throw new Error('商品説明が取得できませんでした。商品個別編集画面で実行してください。');
+    }
+    log(`商品説明を取得しました（${description.trim().length}文字）`);
+
+    // 2. Claude API 呼び出し
+    setProgress('AIでコンディションを解析中...');
+    const aiResponse = await callClaudeAPI(description);
+    log('AI解析が完了しました');
+
+    // 3. RANK: X 行を抽出して本文から除去
+    let conditionText = aiResponse;
+    let detectedRank = null;
+    const rankMatch = aiResponse.match(/^RANK:\s*([A-Za-z+\-]+)\s*$/m);
+    if (rankMatch) {
+      detectedRank = rankMatch[1].trim().toUpperCase();
+      conditionText = aiResponse.replace(/^RANK:\s*[A-Za-z+\-]+\s*\n?/m, '').trim();
+      log(`ランクを検出しました: ${detectedRank}`);
+    }
+
+    // 4. ランク情報タブを開く
+    const rankTab = findRankInfoTab();
+    if (!rankTab) {
+      throw new Error('ランク情報タブが見つかりませんでした');
+    }
+    fireFullClick(rankTab);
+    log('ランク情報タブを開きました');
+    await sleep(800);
+
+    // 5. 補足情報欄を特定
+    const suppInput = await waitFor(() => findSupplementaryInput(), 5000, 200);
+    if (!suppInput) {
+      throw new Error('補足情報入力欄が見つかりませんでした');
+    }
+
+    // 6. 既存値がある場合は上書き確認
+    const existingValue = suppInput.value || '';
+    if (existingValue.trim()) {
+      const overwrite = window.confirm(
+        `補足情報に既存の内容があります。上書きしますか？\n\n現在の内容:\n${existingValue.trim().slice(0, 300)}`
+      );
+      if (!overwrite) {
+        log('上書きをキャンセルしました');
+        return;
+      }
+    }
+
+    // 7. 補足情報を入力
+    setInputValue(suppInput, conditionText);
+    log('補足情報を入力しました');
+
+    // 8. ランクプルダウンを設定（検出できた場合のみ）
+    if (detectedRank) {
+      const rankSelect = findRankSelect();
+      if (rankSelect) {
+        const option = Array.from(rankSelect.options).find(
+          (o) => o.value.toUpperCase() === detectedRank || o.text.toUpperCase().trim() === detectedRank
+        );
+        if (option) {
+          setSelectValue(rankSelect, option.value);
+          log(`ランクを「${detectedRank}」に設定しました`);
+        } else {
+          log(`ランク「${detectedRank}」に対応するオプションが見つかりませんでした`);
+        }
+      } else {
+        log(`ランク「${detectedRank}」を検出しましたが、ランク選択欄が見つかりませんでした`);
+      }
+    }
+
+    log('コンディションを入力しました');
+  }
+
+  /* ======================================================================
    * SKU入力プロンプト
    * ==================================================================== */
 
@@ -625,10 +912,17 @@
         カテゴリ反映待機時間（ミリ秒）
         <input id="bsh-set-category-wait" type="number" style="width:100%;box-sizing:border-box;margin-top:4px;padding:4px;">
       </label>
-      <label style="display:block;margin-bottom:12px;">
+      <label style="display:block;margin-bottom:8px;">
         Item Specifics待機時間（ミリ秒）
         <input id="bsh-set-specifics-wait" type="number" style="width:100%;box-sizing:border-box;margin-top:4px;padding:4px;">
       </label>
+      <label style="display:block;margin-bottom:4px;">
+        Claude APIキー（AIコンディション入力で使用）
+        <input id="bsh-set-api-key" type="password" placeholder="sk-ant-..." style="width:100%;box-sizing:border-box;margin-top:4px;padding:4px;font-family:monospace;">
+      </label>
+      <div style="font-size:11px;color:#888;margin-bottom:12px;">
+        ※ Anthropic Console で発行した APIキーを入力してください
+      </div>
       <div style="display:flex;gap:8px;justify-content:flex-end;">
         <button id="bsh-set-cancel" style="padding:6px 12px;">キャンセル</button>
         <button id="bsh-set-save" style="padding:6px 12px;">保存</button>
@@ -641,6 +935,7 @@
     box.querySelector('#bsh-set-category').value = settings.categoryName;
     box.querySelector('#bsh-set-category-wait').value = settings.categoryWaitMs;
     box.querySelector('#bsh-set-specifics-wait').value = settings.specificsWaitMs;
+    box.querySelector('#bsh-set-api-key').value = settings.claudeApiKey || '';
 
     box.querySelector('#bsh-set-cancel').addEventListener('click', () => overlay.remove());
 
@@ -648,6 +943,7 @@
       settings.categoryName = box.querySelector('#bsh-set-category').value || DEFAULT_SETTINGS.categoryName;
       settings.categoryWaitMs = parseInt(box.querySelector('#bsh-set-category-wait').value, 10) || DEFAULT_SETTINGS.categoryWaitMs;
       settings.specificsWaitMs = parseInt(box.querySelector('#bsh-set-specifics-wait').value, 10) || DEFAULT_SETTINGS.specificsWaitMs;
+      settings.claudeApiKey = box.querySelector('#bsh-set-api-key').value.trim();
       saveSettings(settings);
       log('設定を保存しました');
       overlay.remove();
@@ -685,6 +981,7 @@
       ['👜 カテゴリのみ変更', wrapAction('カテゴリのみ変更', runCategoryChange)],
       ['📝 Item Specificsのみ作成', wrapAction('Item Specificsのみ作成', runItemSpecifics)],
       ['💰 販売価格提案のみ', wrapAction('販売価格提案のみ', runPriceSuggestion)],
+      ['🤖 AIコンディション入力', wrapAction('AIコンディション入力', runAiConditionInput)],
       ['⚙ 設定', () => openSettingsPanel()],
       ['🧹 ログクリア', () => clearLog()],
     ];
