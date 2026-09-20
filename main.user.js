@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.28
+// @version      1.29
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -755,6 +755,112 @@ Only do this when the rank is unambiguously stated as the item's own grade — N
   }
 
   /* ======================================================================
+   * AI コンディション一括入力（リストページ → 編集ページを順番に自動処理）
+   * ==================================================================== */
+
+  const AUTORUN_KEY = 'bayspark_helper_autorun_queue';
+
+  // チェックされた行から編集ページURLを収集する
+  function getCheckedEditUrls() {
+    const rows = Array.from(document.querySelectorAll('table tbody tr'));
+    const urls = [];
+
+    rows.forEach((row) => {
+      const checkbox = row.querySelector('input[type="checkbox"]');
+      if (!checkbox || !checkbox.checked) return;
+
+      const links = Array.from(row.querySelectorAll('a[href]'));
+
+      // /edit を含むリンクを優先
+      let editLink = links.find((a) => a.href.includes('/edit'));
+      // なければ /products/数字 パターン
+      if (!editLink) editLink = links.find((a) => /\/\d+/.test(new URL(a.href).pathname));
+      // なければ行の data-href
+      if (!editLink) {
+        const dataHref = row.getAttribute('data-href');
+        if (dataHref) { urls.push(new URL(dataHref, location.origin).href); return; }
+      }
+
+      if (editLink) urls.push(editLink.href);
+      else log(`行のリンクが取得できませんでした: ${row.textContent.trim().slice(0, 40)}`);
+    });
+
+    return urls;
+  }
+
+  // 保存ボタンをクリックして保存完了を待つ
+  async function saveProductForm() {
+    const saveBtn = Array.from(document.querySelectorAll('button')).find(
+      (b) => b.textContent.trim() === '保存' && b.offsetParent !== null && !b.disabled
+    );
+    if (!saveBtn) { log('保存ボタンが見つかりませんでした'); return false; }
+    fireFullClick(saveBtn);
+    log('保存しました');
+    await sleep(2500);
+    return true;
+  }
+
+  // リストページでチェック済み商品を一括処理する（最初の1件目を開くだけ）
+  async function runBulkAiConditionInput() {
+    const urls = getCheckedEditUrls();
+    if (urls.length === 0) {
+      throw new Error(
+        'チェックされた商品の編集URLが取得できませんでした。\n' +
+        '商品管理リストでチェックボックスを選択した状態で実行してください。'
+      );
+    }
+    log(`${urls.length}件を順番に処理します`);
+    localStorage.setItem(AUTORUN_KEY, JSON.stringify({ urls, index: 0 }));
+    window.open(urls[0], '_blank');
+  }
+
+  // 編集ページ起動時に自動実行キューをチェックし、該当する場合は自動処理する
+  async function checkAutorunQueue() {
+    const raw = localStorage.getItem(AUTORUN_KEY);
+    if (!raw) return;
+
+    let queue;
+    try { queue = JSON.parse(raw); } catch (e) { localStorage.removeItem(AUTORUN_KEY); return; }
+    if (!queue.urls || queue.index >= queue.urls.length) { localStorage.removeItem(AUTORUN_KEY); return; }
+
+    // 現在のページが期待するURLと一致するか確認
+    const expectedPath = new URL(queue.urls[queue.index]).pathname;
+    const currentPath = window.location.pathname;
+    if (!currentPath.includes(expectedPath.replace(/\/edit$/, '').split('/').pop())) return;
+
+    const total = queue.urls.length;
+    const current = queue.index + 1;
+    log(`AI一括処理: ${current} / ${total} 件目`);
+    setProgress(`AI一括処理中 (${current}/${total})...`);
+
+    await sleep(2500); // ページの初期化を待つ
+
+    try {
+      await runAiConditionInput();
+      await sleep(500);
+      await saveProductForm();
+    } catch (e) {
+      log(`エラー（スキップ）: ${e.message}`);
+    }
+
+    await sleep(1000);
+
+    const nextIndex = queue.index + 1;
+    if (nextIndex < total) {
+      queue.index = nextIndex;
+      localStorage.setItem(AUTORUN_KEY, JSON.stringify(queue));
+      log(`次の商品を開きます (${nextIndex + 1}/${total})`);
+      window.open(queue.urls[nextIndex], '_blank');
+    } else {
+      localStorage.removeItem(AUTORUN_KEY);
+      log('全件の処理が完了しました');
+    }
+
+    await sleep(800);
+    window.close();
+  }
+
+  /* ======================================================================
    * SKU入力プロンプト
    * ==================================================================== */
 
@@ -993,6 +1099,7 @@ Only do this when the rank is unambiguously stated as the item's own grade — N
       ['📝 Item Specificsのみ作成', wrapAction('Item Specificsのみ作成', runItemSpecifics)],
       ['💰 販売価格提案のみ', wrapAction('販売価格提案のみ', runPriceSuggestion)],
       ['🤖 AIコンディション入力', wrapAction('AIコンディション入力', runAiConditionInput)],
+      ['🤖 AI一括（選択商品）', wrapAction('AI一括コンディション入力', runBulkAiConditionInput)],
       ['⚙ 設定', () => openSettingsPanel()],
       ['🧹 ログクリア', () => clearLog()],
     ];
@@ -1075,7 +1182,9 @@ Only do this when the rank is unambiguously stated as the item's own grade — N
   function init() {
     const toggleBtn = createToggleButton();
     document.body.appendChild(toggleBtn);
-    console.log('[BaySpark Helper] 起動しました (v1.6)');
+    console.log('[BaySpark Helper] 起動しました (v1.29)');
+    // 編集ページで自動実行キューが残っていれば処理を続行する
+    checkAutorunQueue();
   }
 
   if (document.readyState === 'complete' || document.readyState === 'interactive') {
