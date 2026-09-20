@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.33
+// @version      1.34
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -50,6 +50,7 @@
    * ==================================================================== */
 
   let logEl = null;
+  const LOG_STORAGE_KEY = 'bayspark_helper_log';
 
   function log(message) {
     const time = new Date().toLocaleTimeString();
@@ -61,10 +62,33 @@
       logEl.appendChild(div);
       logEl.scrollTop = logEl.scrollHeight;
     }
+    // ページ遷移をまたいでログを保持する
+    try {
+      const stored = JSON.parse(localStorage.getItem(LOG_STORAGE_KEY) || '[]');
+      stored.push(line);
+      if (stored.length > 80) stored.splice(0, stored.length - 80);
+      localStorage.setItem(LOG_STORAGE_KEY, JSON.stringify(stored));
+    } catch (e) {}
+  }
+
+  function restoreLogs() {
+    if (!logEl) return;
+    try {
+      const stored = JSON.parse(localStorage.getItem(LOG_STORAGE_KEY) || '[]');
+      if (stored.length === 0) return;
+      stored.forEach((line) => {
+        const div = document.createElement('div');
+        div.textContent = line;
+        div.style.color = '#999';
+        logEl.appendChild(div);
+      });
+      logEl.scrollTop = logEl.scrollHeight;
+    } catch (e) {}
   }
 
   function clearLog() {
     if (logEl) logEl.innerHTML = '';
+    try { localStorage.removeItem(LOG_STORAGE_KEY); } catch (e) {}
   }
 
   /* ======================================================================
@@ -644,7 +668,7 @@ Omit the RANK line if no grade is clearly stated.`;
     };
   }
 
-  // AI参照データタブを開いてテキストを取得し、元のタブには戻らない
+  // AI参照データタブを開いてフォームフィールドの値を収集する
   async function getAiReferenceData() {
     const tab = Array.from(document.querySelectorAll('[role="tab"], button, a, li, span')).find(
       (el) => el.textContent.trim() === 'AI参照データ' && el.offsetParent !== null
@@ -652,28 +676,55 @@ Omit the RANK line if no grade is clearly stated.`;
     if (!tab) { log('AI参照データタブが見つかりませんでした'); return null; }
 
     fireFullClick(tab);
-    await sleep(600);
+    await sleep(1000); // Filament/Alpine の表示切替を待つ
 
-    // アクティブなタブパネルのテキストを取得する
-    // Filamentは role="tabpanel" または aria-controls で管理する場合がある
-    const panels = Array.from(document.querySelectorAll('[role="tabpanel"]'));
-    const visiblePanel = panels.find((p) => p.offsetParent !== null);
-    if (visiblePanel) return visiblePanel.innerText || visiblePanel.textContent;
+    // フォームフィールド（input.value, textarea.value, contenteditable.innerText）から値を収集する
+    // panel.innerText では input/textarea の値が取れないため
+    const allFields = Array.from(document.querySelectorAll(
+      'input[type="text"], input[type="number"], textarea, [contenteditable="true"]'
+    )).filter((el) => {
+      if (el.offsetParent === null) return false; // 非表示要素を除外
+      if (el.closest('#bsh-panel')) return false; // BaySpark Helper自身のパネルは除外
+      return true;
+    });
 
-    // フォールバック: aria-selected="true" のタブに対応するパネル
-    const activeTab = document.querySelector('[role="tab"][aria-selected="true"]');
-    if (activeTab) {
-      const panelId = activeTab.getAttribute('aria-controls');
-      if (panelId) {
-        const panel = document.getElementById(panelId);
-        if (panel) return panel.innerText || panel.textContent;
+    log(`AI参照データ: 可視フィールド ${allFields.length}件検出`);
+
+    const parts = [];
+    for (const el of allFields) {
+      const value = el.value !== undefined ? el.value : (el.innerText || el.textContent || '');
+      if (value.trim().length < 3) continue;
+
+      // ラベルテキストを探す
+      let labelText = '';
+      if (el.id) {
+        try {
+          const lbl = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+          if (lbl) labelText = lbl.textContent.replace('*', '').trim();
+        } catch (e) {}
       }
+      if (!labelText) {
+        const wrapper = el.closest('.fi-fo-field-wrp, .fi-fo-field, [data-field]');
+        if (wrapper) {
+          const lbl = wrapper.querySelector('label');
+          if (lbl) labelText = lbl.textContent.replace('*', '').trim();
+        }
+      }
+
+      parts.push(labelText ? `${labelText}:\n${value.trim()}` : value.trim());
     }
 
-    // 最後の手段: ページ内で "AI参照データ" の後に現れるコンテンツブロック
+    if (parts.length > 0) {
+      return parts.join('\n\n---\n\n');
+    }
+
+    // フォールバック: 表示中のテキスト全体から "AI参照データ" 以降を取得
     const allText = document.body.innerText;
     const idx = allText.indexOf('AI参照データ');
-    if (idx !== -1) return allText.slice(idx + 7, idx + 5000);
+    if (idx !== -1) {
+      const chunk = allText.slice(idx + 7, idx + 5000).trim();
+      if (chunk.length > 10) return chunk;
+    }
 
     return null;
   }
@@ -1209,6 +1260,7 @@ Omit the RANK line if no grade is clearly stated.`;
     ].join(';');
     panel.appendChild(logBox);
     logEl = logBox;
+    restoreLogs();
 
     return panel;
   }
