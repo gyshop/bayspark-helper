@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.43
+// @version      1.44
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -1032,15 +1032,13 @@ Omit the RANK line if no grade is clearly stated.`;
       log(`エラー（スキップして次へ）: ${e.message}`);
     }
 
-    await sleep(1500);
-
+    // 保存後のFilamentリダイレクトより先に次URLへ移動する（遅延なし）
     if (nextIndex < total) {
       log(`次の商品へ移動します (${nextIndex + 1}/${total})`);
-      await sleep(300);
       window.location.href = queue.urls[nextIndex];
     } else {
       log('全件の処理が完了しました。リストに戻ります...');
-      await sleep(1000);
+      await sleep(500);
       if (queue.returnUrl) window.location.href = queue.returnUrl;
     }
   }
