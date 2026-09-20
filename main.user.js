@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.37
+// @version      1.38
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -650,67 +650,53 @@ Omit the RANK line if no grade is clearly stated.`;
     return null;
   }
 
-  // ランク情報エントリ一覧を返す（コンテナ単位で安全に検索）
-  function findAllRankEntries() {
-    // 各エントリのコンテナを特定する方法（優先順）:
-    // 1. Filament の fi-fo-repeater-item クラス
-    // 2. Livewire の wire:key 属性を持つ要素で 項目名 ラベルを含むもの
-    // 3. 削除ボタン（ゴミ箱）の祖先要素
-    let containers = Array.from(document.querySelectorAll('.fi-fo-repeater-item'))
-      .filter((el) => el.offsetParent !== null);
-
-    if (containers.length === 0) {
-      // wire:key を持つ要素のうち 項目名 ラベルを含むもの
-      containers = Array.from(document.querySelectorAll('[wire\\:key]')).filter((el) => {
-        return el.offsetParent !== null &&
-          Array.from(el.querySelectorAll('label')).some(
-            (l) => l.textContent.replace('*', '').trim() === '項目名'
-          );
-      });
-    }
-
-    if (containers.length === 0) {
-      // 最終手段: 項目名ラベルから上方向に祖先コンテナを探す
-      const itemLabels = Array.from(document.querySelectorAll('label')).filter(
-        (l) => l.offsetParent !== null && l.textContent.replace('*', '').trim() === '項目名'
+  // 項目名inputを起点にDOM上方向に探索し、ランクselectと補足情報inputを持つコンテナを特定する
+  function getEntryFieldsFromItemNameInput(itemNameInput) {
+    let container = itemNameInput.parentElement;
+    while (container && container !== document.body) {
+      const visibleLabels = Array.from(container.querySelectorAll('label')).filter(
+        (l) => l.offsetParent !== null
       );
-      const seen = new Set();
-      for (const lbl of itemLabels) {
-        let el = lbl.parentElement;
-        while (el && el !== document.body) {
-          if (!seen.has(el) && el.querySelectorAll('label').length >= 2) {
-            seen.add(el);
-            containers.push(el);
-            break;
+      const rankLbl = visibleLabels.find((l) => l.textContent.replace('*', '').trim() === 'ランク');
+      const suppLbl = visibleLabels.find((l) => l.textContent.trim() === '補足情報');
+      if (rankLbl || suppLbl) {
+        const getByLabel = (lbl) => {
+          if (!lbl) return null;
+          const forId = lbl.getAttribute('for');
+          if (forId) {
+            const el = document.getElementById(forId);
+            if (el) return el;
           }
-          el = el.parentElement;
-        }
+          const wrapper = lbl.closest('.fi-fo-field-wrp, .fi-fo-field, [data-field]') || lbl.parentElement;
+          return wrapper ? (wrapper.querySelector('select, textarea, input[type="text"]') || null) : null;
+        };
+        return {
+          itemNameInput,
+          rankSelect: getByLabel(rankLbl),
+          suppInput: getByLabel(suppLbl),
+        };
       }
+      container = container.parentElement;
     }
+    return { itemNameInput, rankSelect: null, suppInput: null };
+  }
 
-    log(`findAllRankEntries: コンテナ${containers.length}件検出`);
+  // 全ての「項目名」inputを取得してエントリ一覧を返す
+  function findAllRankEntries() {
+    // 「項目名」ラベルに対応する全 input を探す
+    const itemNameInputs = Array.from(document.querySelectorAll('label'))
+      .filter((l) => l.offsetParent !== null && l.textContent.replace('*', '').trim() === '項目名')
+      .map((l) => {
+        const forId = l.getAttribute('for');
+        if (forId) return document.getElementById(forId);
+        const wrapper = l.closest('.fi-fo-field-wrp, .fi-fo-field, [data-field]') || l.parentElement;
+        return wrapper ? wrapper.querySelector('input[type="text"]') : null;
+      })
+      .filter(Boolean);
 
-    // 各コンテナからフィールドを取得
-    return containers.map((container) => {
-      const getField = (labelText) => {
-        const lbl = Array.from(container.querySelectorAll('label')).find(
-          (l) => l.offsetParent !== null && l.textContent.replace('*', '').trim() === labelText
-        );
-        if (!lbl) return null;
-        const forId = lbl.getAttribute('for');
-        if (forId) {
-          const el = document.getElementById(forId);
-          if (el) return el;
-        }
-        const wrapper = lbl.closest('.fi-fo-field-wrp, .fi-fo-field, [data-field]') || lbl.parentElement;
-        return wrapper ? (wrapper.querySelector('select, textarea, input[type="text"]') || null) : null;
-      };
-      return {
-        itemNameInput: getField('項目名'),
-        rankSelect: getField('ランク'),
-        suppInput: getField('補足情報'),
-      };
-    });
+    log(`findAllRankEntries: 項目名input ${itemNameInputs.length}件, 値=[${itemNameInputs.map((i) => `"${i.value}"`).join(', ')}]`);
+
+    return itemNameInputs.map((input) => getEntryFieldsFromItemNameInput(input));
   }
 
   // ランク情報フォーム内の3フィールドをまとめて返す（最後のエントリ）
@@ -865,13 +851,14 @@ Omit the RANK line if no grade is clearly stated.`;
     // Step 6: 既存の「Rank」エントリを探す。なければ「ランク情報を追加」をクリック
     log('Step6: 既存のRankエントリを確認します');
     const rankSystemName = settings.rankSystemName || DEFAULT_SETTINGS.rankSystemName;
-    const beforeEntries = findAllRankEntries();
-    const existingRankEntry = beforeEntries.find(
-      (e) => e.itemNameInput && e.itemNameInput.value.trim() === rankSystemName
+
+    // コンテナ検出に依存せず、値が rankSystemName の input を直接探す
+    const existingItemInput = Array.from(document.querySelectorAll('input[type="text"]')).find(
+      (el) => el.offsetParent !== null && el.value.trim() === rankSystemName
     );
 
-    if (existingRankEntry) {
-      log(`Step6: 既存の「${rankSystemName}」エントリを使用します`);
+    if (existingItemInput) {
+      log(`Step6: 既存の「${rankSystemName}」エントリが見つかりました（追加スキップ）`);
     } else {
       const addRankBtn = Array.from(document.querySelectorAll('button')).find(
         (b) => b.offsetParent !== null && b.textContent.trim().includes('ランク情報を追加')
@@ -888,12 +875,18 @@ Omit the RANK line if no grade is clearly stated.`;
     // Step 7: フォームフィールドを取得（補足情報が出るまで待つ）
     log('Step7: フォームフィールドを待ちます');
     const fields = await waitFor(() => {
-      // 既存エントリを使う場合も含め、毎回最新の状態を取得
+      // 項目名=rankSystemName の input を起点に関連フィールドを探す
+      const targetInput = Array.from(document.querySelectorAll('input[type="text"]')).find(
+        (el) => el.offsetParent !== null && el.value.trim() === rankSystemName
+      );
+      if (targetInput) {
+        const entry = getEntryFieldsFromItemNameInput(targetInput);
+        if (entry.suppInput) return entry;
+      }
+      // 新規追加の場合: 最後の空の 項目名 input を使う
       const allEntries = findAllRankEntries();
-      // 項目名=rankSystemName のエントリを優先
-      const target = allEntries.find((e) => e.itemNameInput && e.itemNameInput.value.trim() === rankSystemName)
-        || allEntries[allEntries.length - 1]; // なければ最後のエントリ
-      return (target && target.suppInput) ? target : null;
+      const last = allEntries[allEntries.length - 1];
+      return (last && last.suppInput) ? last : null;
     }, 5000, 300);
     if (!fields || !fields.suppInput) throw new Error('補足情報入力欄が見つかりませんでした');
     log('Step7 完了: フォームフィールドが見つかりました');
