@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.44
+// @version      1.45
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -506,16 +506,25 @@ TASK: From the provided reference data, extract two things:
    - Output English only, no Japanese, no preamble — ready to paste directly
 
 2. RANK GRADE:
-   Valid grades (choose one if clearly stated): S, A, AB, B, BC, C, D
-   - Only output if the data explicitly states this item's grade
-   - Do NOT infer rank from condition wording
-   - Do NOT extract rank from a grade criteria table
+   Valid grades: S, A, AB, B, BC, C, D
+   Grade criteria:
+   - S: Like new / unused / no signs of use
+   - A: Minor signs of use, no notable flaws
+   - AB: Light wear, very minor scratches or scuffs
+   - B: Some visible scratches, scuffs, or stains but overall good
+   - BC: Noticeable wear, scratches, stains — still usable
+   - C: Significant wear, scratches, stains, or damage
+   - D: Heavy damage, major defects, poor condition
 
-Output format — condition text first, then optionally one RANK line at the end:
+   Rules:
+   - If the data explicitly states a grade → use it
+   - If no explicit grade → judge based on the condition description above
+   - Do NOT extract rank from a grade criteria table in the data
+   - Always output a RANK line
+
+Output format — condition text first, then one RANK line at the end:
 [condition text]
-RANK: [grade]
-
-Omit the RANK line if no grade is clearly stated.`;
+RANK: [grade]`;
 
   async function callClaudeAPI(productDescription) {
     const apiKey = settings.claudeApiKey;
