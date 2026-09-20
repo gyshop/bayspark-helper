@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.42
+// @version      1.43
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -933,7 +933,6 @@ Omit the RANK line if no grade is clearly stated.`;
    * ==================================================================== */
 
   const AUTORUN_KEY = 'bayspark_helper_autorun_queue';
-  const AUTORUN_SINGLE_PREFIX = 'bayspark_autorun_';
 
   // チェックされた行から編集ページURLを収集する
   function getCheckedEditUrls() {
@@ -975,8 +974,7 @@ Omit the RANK line if no grade is clearly stated.`;
     return true;
   }
 
-  // リストページでチェック済み商品を新しいタブで一括処理する
-  // ボタンクリックのコンテキストから window.open するのでポップアップブロッカーに引っかからない
+  // リストページでチェック済み商品を同じタブで順番に処理する
   async function runBulkAiConditionInput() {
     const urls = getCheckedEditUrls();
     if (urls.length === 0) {
@@ -985,45 +983,65 @@ Omit the RANK line if no grade is clearly stated.`;
         '商品管理リストでチェックボックスを選択した状態で実行してください。'
       );
     }
-    log(`${urls.length}件を新しいタブで処理します`);
-
-    // 各URLに自動実行フラグをセット（パスをキーにする）
-    urls.forEach((url) => {
-      const path = new URL(url, window.location.href).pathname.replace(/\/$/, '');
-      localStorage.setItem(AUTORUN_SINGLE_PREFIX + path, '1');
-    });
-
-    // 全タブを開く（ユーザーアクションから呼び出しているのでブロックされない）
-    urls.forEach((url, i) => {
-      setTimeout(() => window.open(url, '_blank'), i * 400);
-    });
+    log(`${urls.length}件を順番に処理します`);
+    localStorage.setItem(AUTORUN_KEY, JSON.stringify({
+      urls,
+      index: 0,
+      returnUrl: window.location.href,
+    }));
+    log('1件目に移動します...');
+    await sleep(300);
+    window.location.href = urls[0];
   }
 
-  // 編集ページ起動時に自動実行フラグをチェックし、該当する場合は自動処理する
+  // 編集ページ起動時にキューをチェックし、該当する場合は自動処理する
   async function checkAutorunQueue() {
-    // 旧キュー方式のクリーンアップ
-    localStorage.removeItem(AUTORUN_KEY);
+    const raw = localStorage.getItem(AUTORUN_KEY);
+    if (!raw) return;
 
-    const path = window.location.pathname.replace(/\/$/, '');
-    const flagKey = AUTORUN_SINGLE_PREFIX + path;
-    if (!localStorage.getItem(flagKey)) return;
-    localStorage.removeItem(flagKey);
+    let queue;
+    try { queue = JSON.parse(raw); } catch (e) { localStorage.removeItem(AUTORUN_KEY); return; }
+    if (!queue.urls || queue.index >= queue.urls.length) { localStorage.removeItem(AUTORUN_KEY); return; }
 
-    log('AI一括処理: このタブを自動処理します');
-    setProgress('AI一括処理中...');
+    const normalize = (url) => new URL(url, window.location.href).pathname.replace(/\/$/, '');
+    if (normalize(window.location.href) !== normalize(queue.urls[queue.index])) return;
 
-    // ページの初期化（Livewireのマウント）を待つ
+    const current = queue.index;
+    const total = queue.urls.length;
+
+    // 処理開始直前にインデックスを進める（保存後のページリロードで二重実行を防ぐ）
+    const nextIndex = current + 1;
+    if (nextIndex < total) {
+      queue.index = nextIndex;
+      localStorage.setItem(AUTORUN_KEY, JSON.stringify(queue));
+    } else {
+      localStorage.removeItem(AUTORUN_KEY);
+    }
+
+    log(`AI一括処理: ${current + 1} / ${total} 件目`);
+    setProgress(`AI一括処理中 (${current + 1}/${total})...`);
+
     await sleep(3000);
 
     try {
       await runAiConditionInput();
       await sleep(500);
       await saveProductForm();
-      log('処理完了。タブを閉じます');
-      await sleep(1500);
-      window.close();
+      log(`${current + 1}件目の処理が完了しました`);
     } catch (e) {
-      log(`エラー: ${e.message}`);
+      log(`エラー（スキップして次へ）: ${e.message}`);
+    }
+
+    await sleep(1500);
+
+    if (nextIndex < total) {
+      log(`次の商品へ移動します (${nextIndex + 1}/${total})`);
+      await sleep(300);
+      window.location.href = queue.urls[nextIndex];
+    } else {
+      log('全件の処理が完了しました。リストに戻ります...');
+      await sleep(1000);
+      if (queue.returnUrl) window.location.href = queue.returnUrl;
     }
   }
 
