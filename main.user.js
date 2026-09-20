@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.26
+// @version      1.27
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -105,7 +105,7 @@
 
   function fireFullClick(el) {
     if (!el) return;
-    const opts = { bubbles: true, cancelable: true, view: window };
+    const opts = { bubbles: true, cancelable: true, view: document.defaultView };
     el.dispatchEvent(new MouseEvent('mousedown', opts));
     el.dispatchEvent(new MouseEvent('mouseup', opts));
     el.dispatchEvent(new MouseEvent('click', opts));
