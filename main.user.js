@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.32
+// @version      1.33
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -678,75 +678,111 @@ Omit the RANK line if no grade is clearly stated.`;
     return null;
   }
 
+  // 「使用するランク」をFilamentカスタムセレクトとnative selectの両方に対応して設定する
+  async function setRankSystemSelect(targetName) {
+    // Strategy 1: native <select> 要素
+    const nativeSel = findFieldByLabel('使用するランク', 'SELECT');
+    if (nativeSel) {
+      log(`使用するランク: native selectが見つかりました（選択肢: ${Array.from(nativeSel.options).map((o) => o.text).join(', ')}）`);
+      const opt = Array.from(nativeSel.options).find((o) => o.text.trim() === targetName);
+      if (opt) { setSelectValue(nativeSel, opt.value); return; }
+    }
+
+    // Strategy 2: Filamentカスタムセレクト（クリックして開き、候補を選ぶ）
+    const label = Array.from(document.querySelectorAll('label')).find(
+      (l) => l.offsetParent !== null && l.textContent.trim().includes('使用するランク')
+    );
+    if (!label) { log('使用するランクのラベルが見つかりませんでした'); return; }
+
+    const wrapper = label.closest('.fi-fo-field-wrp, .fi-fo-field, [data-field], div');
+    if (!wrapper) { log('使用するランクのラッパーが見つかりませんでした'); return; }
+
+    // ドロップダウントリガー（button, select, div等）をクリック
+    const trigger = wrapper.querySelector('[role="combobox"], button, select');
+    fireFullClick(trigger || wrapper);
+    await sleep(400);
+
+    // 展開された候補から選択
+    const option = Array.from(document.querySelectorAll('[role="option"], li, .fi-select-option')).find(
+      (el) => el.offsetParent !== null && el.textContent.trim() === targetName
+    );
+    if (option) {
+      fireFullClick(option);
+      log(`使用するランクを「${targetName}」に設定しました`);
+      await sleep(300);
+    } else {
+      log(`「${targetName}」の候補が見つかりませんでした（Escで閉じます）`);
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await sleep(200);
+    }
+  }
+
   async function runAiConditionInput() {
     log('AIコンディション入力を開始します');
 
-    // 1. AI参照データを先に取得する（タブ切り替えが発生するため最初に行う）
+    // Step 1: AI参照データを先に取得する（タブ切り替えが発生するため最初に行う）
     setProgress('AI参照データを読み取り中...');
+    log('Step1: AI参照データを読み取ります');
     const refData = await getAiReferenceData();
     if (!refData || refData.trim().length < 10) {
       throw new Error('AI参照データが取得できませんでした。商品個別編集画面で実行してください。');
     }
-    log(`AI参照データを取得しました（${refData.trim().length}文字）`);
+    log(`Step1 完了: AI参照データ取得（${refData.trim().length}文字）`);
 
-    // 2. Claude API 呼び出し
+    // Step 2: Claude API 呼び出し
     setProgress('AIでコンディションを解析中...');
+    log('Step2: Claude APIを呼び出します');
     const aiResponse = await callClaudeAPI(refData);
-    log('AI解析が完了しました');
+    log('Step2 完了: AI解析完了');
 
-    // 3. RANK行を抽出して本文から除去
+    // Step 3: RANK行を抽出して本文から除去
     let conditionText = aiResponse;
     let detectedRank = null;
     const rankMatch = aiResponse.match(/^RANK:\s*([A-Za-z]+)\s*$/m);
     if (rankMatch) {
       detectedRank = rankMatch[1].trim().toUpperCase();
       conditionText = aiResponse.replace(/^RANK:\s*[A-Za-z]+\s*\n?/m, '').trim();
-      log(`ランクを検出しました: ${detectedRank}`);
+      log(`Step3: ランクを検出しました: ${detectedRank}`);
+    } else {
+      log('Step3: ランク記載なし');
     }
 
-    // 4. ランク情報タブを開く
+    // Step 4: ランク情報タブを開く
+    log('Step4: ランク情報タブを探します');
     const rankTab = findRankInfoTab();
     if (!rankTab) throw new Error('ランク情報タブが見つかりませんでした');
     fireFullClick(rankTab);
-    log('ランク情報タブを開きました');
+    log('Step4 完了: ランク情報タブを開きました');
     await sleep(800);
 
-    // 5. 使用するランクを設定する（ランク情報を追加する前に設定する必要がある）
-    const rankSystemName = settings.rankSystemName || DEFAULT_SETTINGS.rankSystemName;
-    const rankSystemSelect = findFieldByLabel('使用するランク', 'SELECT');
-    if (rankSystemSelect) {
-      const opt = Array.from(rankSystemSelect.options).find(
-        (o) => o.text.trim() === rankSystemName || o.value === rankSystemName
-      );
-      if (opt) {
-        setSelectValue(rankSystemSelect, opt.value);
-        log(`使用するランクを「${rankSystemName}」に設定しました`);
-        await sleep(500);
-      } else {
-        log(`「${rankSystemName}」に対応する選択肢が見つかりませんでした（選択肢: ${Array.from(rankSystemSelect.options).map((o) => o.text).join(', ')}）`);
-      }
-    } else {
-      log('使用するランク選択欄が見つかりませんでした');
-    }
+    // Step 5: 使用するランクを設定する
+    log(`Step5: 使用するランクを「${settings.rankSystemName || DEFAULT_SETTINGS.rankSystemName}」に設定します`);
+    await setRankSystemSelect(settings.rankSystemName || DEFAULT_SETTINGS.rankSystemName);
+    log('Step5 完了');
 
-    // 6. 「ランク情報を追加」ボタンをクリックして入力欄を展開する
+    // Step 6: 「ランク情報を追加」ボタンをクリック
+    log('Step6: ランク情報を追加ボタンを探します');
     const addRankBtn = Array.from(document.querySelectorAll('button')).find(
-      (b) => b.offsetParent !== null && b.textContent.trim() === 'ランク情報を追加'
+      (b) => b.offsetParent !== null && b.textContent.trim().includes('ランク情報を追加')
     );
     if (addRankBtn) {
       fireFullClick(addRankBtn);
-      log('ランク情報を追加ボタンをクリックしました');
+      log('Step6 完了: ランク情報を追加をクリックしました');
       await sleep(800);
+    } else {
+      log('Step6: ランク情報を追加ボタンが見つかりませんでした（既に展開済みの可能性）');
     }
 
-    // 7. フォームフィールドを取得（補足情報が出るまで待つ）
+    // Step 7: フォームフィールドを取得（補足情報が出るまで待つ）
+    log('Step7: フォームフィールドを待ちます');
     const fields = await waitFor(() => {
       const f = findRankInfoFields();
       return f.suppInput ? f : null;
     }, 5000, 200);
     if (!fields) throw new Error('補足情報入力欄が見つかりませんでした');
+    log('Step7 完了: フォームフィールドが見つかりました');
 
-    // 8. 既存値がある場合は上書き確認
+    // Step 8: 既存値がある場合は上書き確認
     const existingValue = fields.suppInput.value || '';
     if (existingValue.trim()) {
       const overwrite = window.confirm(
@@ -755,11 +791,11 @@ Omit the RANK line if no grade is clearly stated.`;
       if (!overwrite) { log('上書きをキャンセルしました'); return; }
     }
 
-    // 9. 補足情報を入力（項目名はBaySparkが使用するランクに応じて自動設定するため触らない）
+    // Step 9: 補足情報を入力（項目名はBaySparkが自動設定するため触らない）
     setInputValue(fields.suppInput, conditionText);
-    log('補足情報を入力しました');
+    log('Step9 完了: 補足情報を入力しました');
 
-    // 10. ランクドロップダウンを設定（"C（Poor）"→"C" のように括弧前の文字で照合）
+    // Step 10: ランクドロップダウンを設定（"C（Poor）"→"C" で照合）
     if (detectedRank && fields.rankSelect) {
       const opt = Array.from(fields.rankSelect.options).find((o) => {
         const key = o.text.replace(/[（(].*/, '').trim().toUpperCase();
@@ -767,15 +803,15 @@ Omit the RANK line if no grade is clearly stated.`;
       });
       if (opt) {
         setSelectValue(fields.rankSelect, opt.value);
-        log(`ランクを「${detectedRank}」に設定しました`);
+        log(`Step10 完了: ランクを「${detectedRank}」に設定しました`);
       } else {
-        log(`ランク「${detectedRank}」が見つかりません（選択肢: ${Array.from(fields.rankSelect.options).map((o) => o.text).join(', ')}）`);
+        log(`Step10: ランク「${detectedRank}」が見つかりません（選択肢: ${Array.from(fields.rankSelect.options).map((o) => o.text).join(', ')}）`);
       }
     } else if (detectedRank) {
-      log(`ランク「${detectedRank}」を検出しましたが、ランク選択欄が見つかりませんでした`);
+      log(`Step10: ランク「${detectedRank}」を検出しましたが、選択欄が見つかりませんでした`);
     }
 
-    log('コンディションを入力しました');
+    log('コンディションを入力しました ✓');
   }
 
   /* ======================================================================
