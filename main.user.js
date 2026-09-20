@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.36
+// @version      1.37
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -650,58 +650,67 @@ Omit the RANK line if no grade is clearly stated.`;
     return null;
   }
 
-  // ランク情報エントリ一覧をインデックスベースで返す
-  // ラベルの DOM 順序と対応フィールドの DOM 順序が一致することを前提とする
+  // ランク情報エントリ一覧を返す（コンテナ単位で安全に検索）
   function findAllRankEntries() {
-    const getFieldForLabel = (label) => {
-      if (!label) return null;
-      const forId = label.getAttribute('for');
-      if (forId) {
-        const el = document.getElementById(forId);
-        if (el && el.offsetParent !== null) return el;
-      }
-      // for属性がない場合はラベルの親要素内を探す
-      const wrapper = label.closest('.fi-fo-field-wrp, .fi-fo-field, [data-field]') || label.parentElement;
-      if (wrapper) {
-        return wrapper.querySelector('select, textarea, input[type="text"]') || null;
-      }
-      return null;
-    };
+    // 各エントリのコンテナを特定する方法（優先順）:
+    // 1. Filament の fi-fo-repeater-item クラス
+    // 2. Livewire の wire:key 属性を持つ要素で 項目名 ラベルを含むもの
+    // 3. 削除ボタン（ゴミ箱）の祖先要素
+    let containers = Array.from(document.querySelectorAll('.fi-fo-repeater-item'))
+      .filter((el) => el.offsetParent !== null);
 
-    const visibleLabels = Array.from(document.querySelectorAll('label')).filter(
-      (l) => l.offsetParent !== null
-    );
-
-    // 項目名（繰り返しエントリのみ、「使用するランク」等は除外）
-    const itemNameInputs = visibleLabels
-      .filter((l) => l.textContent.replace('*', '').trim() === '項目名')
-      .map((l) => getFieldForLabel(l))
-      .filter(Boolean);
-
-    // ランク（「使用するランク」は含まない、厳密一致）
-    const rankSelects = visibleLabels
-      .filter((l) => l.textContent.replace('*', '').trim() === 'ランク')
-      .map((l) => getFieldForLabel(l))
-      .filter(Boolean);
-
-    // 補足情報
-    const suppInputs = visibleLabels
-      .filter((l) => l.textContent.trim() === '補足情報')
-      .map((l) => getFieldForLabel(l))
-      .filter(Boolean);
-
-    const count = itemNameInputs.length;
-    log(`findAllRankEntries: 項目名×${count} / ランク×${rankSelects.length} / 補足情報×${suppInputs.length}`);
-
-    const entries = [];
-    for (let i = 0; i < count; i++) {
-      entries.push({
-        itemNameInput: itemNameInputs[i],
-        rankSelect: rankSelects[i] || null,
-        suppInput: suppInputs[i] || null,
+    if (containers.length === 0) {
+      // wire:key を持つ要素のうち 項目名 ラベルを含むもの
+      containers = Array.from(document.querySelectorAll('[wire\\:key]')).filter((el) => {
+        return el.offsetParent !== null &&
+          Array.from(el.querySelectorAll('label')).some(
+            (l) => l.textContent.replace('*', '').trim() === '項目名'
+          );
       });
     }
-    return entries;
+
+    if (containers.length === 0) {
+      // 最終手段: 項目名ラベルから上方向に祖先コンテナを探す
+      const itemLabels = Array.from(document.querySelectorAll('label')).filter(
+        (l) => l.offsetParent !== null && l.textContent.replace('*', '').trim() === '項目名'
+      );
+      const seen = new Set();
+      for (const lbl of itemLabels) {
+        let el = lbl.parentElement;
+        while (el && el !== document.body) {
+          if (!seen.has(el) && el.querySelectorAll('label').length >= 2) {
+            seen.add(el);
+            containers.push(el);
+            break;
+          }
+          el = el.parentElement;
+        }
+      }
+    }
+
+    log(`findAllRankEntries: コンテナ${containers.length}件検出`);
+
+    // 各コンテナからフィールドを取得
+    return containers.map((container) => {
+      const getField = (labelText) => {
+        const lbl = Array.from(container.querySelectorAll('label')).find(
+          (l) => l.offsetParent !== null && l.textContent.replace('*', '').trim() === labelText
+        );
+        if (!lbl) return null;
+        const forId = lbl.getAttribute('for');
+        if (forId) {
+          const el = document.getElementById(forId);
+          if (el) return el;
+        }
+        const wrapper = lbl.closest('.fi-fo-field-wrp, .fi-fo-field, [data-field]') || lbl.parentElement;
+        return wrapper ? (wrapper.querySelector('select, textarea, input[type="text"]') || null) : null;
+      };
+      return {
+        itemNameInput: getField('項目名'),
+        rankSelect: getField('ランク'),
+        suppInput: getField('補足情報'),
+      };
+    });
   }
 
   // ランク情報フォーム内の3フィールドをまとめて返す（最後のエントリ）
