@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.40
+// @version      1.41
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -843,24 +843,22 @@ Omit the RANK line if no grade is clearly stated.`;
     log('Step4 完了: ランク情報タブを開きました');
     await sleep(800);
 
-    // Step 5/6: 既存エントリ確認 → なければ 使用するランク設定 → ランク情報追加
-    // ※「使用するランク」を変更するとLivewireがエントリをリセットするため、
-    //   既存エントリがある場合は変更せずそのまま使用する
+    // Step 5: 使用するランクを設定する（これによりエントリフォームが表示される）
     const rankSystemName = settings.rankSystemName || DEFAULT_SETTINGS.rankSystemName;
-    log(`Step5: 既存の「${rankSystemName}」エントリを確認します`);
+    log(`Step5: 使用するランクを「${rankSystemName}」に設定します`);
+    await setRankSystemSelect(rankSystemName);
+    log('Step5 完了');
+    await sleep(800); // フォームが表示されるのを待つ
 
+    // Step 6: 使用するランク設定後に既存エントリを確認し、なければ追加
+    log('Step6: 既存のRankエントリを確認します');
     const existingItemInput = Array.from(document.querySelectorAll('input[type="text"]')).find(
       (el) => el.offsetParent !== null && el.value.trim() === rankSystemName
     );
 
     if (existingItemInput) {
-      log(`Step5: 既存の「${rankSystemName}」エントリが見つかりました（使用するランク変更・追加ともにスキップ）`);
+      log(`Step6: 既存の「${rankSystemName}」エントリが見つかりました（追加スキップ）`);
     } else {
-      // 既存エントリなし → 使用するランクを設定してから追加
-      log(`Step5: 使用するランクを「${rankSystemName}」に設定します`);
-      await setRankSystemSelect(rankSystemName);
-      log('Step5 完了');
-
       const addRankBtn = Array.from(document.querySelectorAll('button')).find(
         (b) => b.offsetParent !== null && b.textContent.trim().includes('ランク情報を追加')
       );
