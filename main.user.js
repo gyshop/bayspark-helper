@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.27
+// @version      1.28
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -637,12 +637,13 @@ Only do this when the rank is unambiguously stated as the item's own grade — N
     return null;
   }
 
-  // 「ランク」ラベルに紐付く select を探す（「ランク情報」「補足情報」とは区別する）
+  // 「使用するランク」ラベルに紐付く select を探す
   function findRankSelect() {
     const labels = Array.from(document.querySelectorAll('label'));
     const label = labels.find((l) => {
       const text = l.textContent.trim();
-      return text === 'ランク' || (text.startsWith('ランク') && !text.includes('情報') && !text.includes('補足'));
+      return text === '使用するランク' || text === 'ランク' ||
+        (text.includes('ランク') && !text.includes('情報') && !text.includes('補足'));
     });
     if (!label) return null;
 
@@ -700,13 +701,23 @@ Only do this when the rank is unambiguously stated as the item's own grade — N
     log('ランク情報タブを開きました');
     await sleep(800);
 
-    // 5. 補足情報欄を特定
+    // 5. 「ランク情報を追加」ボタンがある場合はクリックして入力欄を展開する
+    const addRankBtn = Array.from(document.querySelectorAll('button')).find(
+      (b) => b.offsetParent !== null && b.textContent.trim() === 'ランク情報を追加'
+    );
+    if (addRankBtn) {
+      fireFullClick(addRankBtn);
+      log('ランク情報を追加ボタンをクリックしました');
+      await sleep(800);
+    }
+
+    // 6. 補足情報欄を特定
     const suppInput = await waitFor(() => findSupplementaryInput(), 5000, 200);
     if (!suppInput) {
       throw new Error('補足情報入力欄が見つかりませんでした');
     }
 
-    // 6. 既存値がある場合は上書き確認
+    // 7. 既存値がある場合は上書き確認
     const existingValue = suppInput.value || '';
     if (existingValue.trim()) {
       const overwrite = window.confirm(
@@ -718,11 +729,11 @@ Only do this when the rank is unambiguously stated as the item's own grade — N
       }
     }
 
-    // 7. 補足情報を入力
+    // 8. 補足情報を入力
     setInputValue(suppInput, conditionText);
     log('補足情報を入力しました');
 
-    // 8. ランクプルダウンを設定（検出できた場合のみ）
+    // 9. ランクプルダウンを設定（検出できた場合のみ）
     if (detectedRank) {
       const rankSelect = findRankSelect();
       if (rankSelect) {
