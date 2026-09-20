@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.45
+// @version      1.46
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -503,7 +503,8 @@ TASK: From the provided reference data, extract two things:
    - EXCLUDE: brand, model, size, color, material, accessories list, shipping, authenticity disclaimers,
      rank criteria tables, boilerplate phrases like "please check photos"
    - Use ONLY what is explicitly stated — never infer or speculate
-   - Output English only, no Japanese, no preamble — ready to paste directly
+   - ALWAYS output in English only — never output Japanese or any other language
+   - If no condition information is present in the data, output exactly: No condition details available.
 
 2. RANK GRADE:
    Valid grades: S, A, AB, B, BC, C, D
