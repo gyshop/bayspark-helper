@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.34
+// @version      1.35
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -650,14 +650,55 @@ Omit the RANK line if no grade is clearly stated.`;
     return null;
   }
 
-  // ランク情報フォーム内の3フィールドをまとめて返す
+  // ランク情報エントリ一覧を返す（各エントリは {itemNameInput, rankSelect, suppInput, container}）
+  function findAllRankEntries() {
+    // ランク情報セクション内の繰り返しエントリをコンテナ単位で収集する
+    // 各エントリは削除ボタン（ゴミ箱）を持つカード要素
+    const entries = [];
+    const allLabels = Array.from(document.querySelectorAll('label')).filter(
+      (l) => l.offsetParent !== null && l.textContent.replace('*', '').trim() === '項目名'
+    );
+    for (const label of allLabels) {
+      const container = label.closest('[class*="card"], [class*="block"], [class*="repeater"], .fi-fo-repeater-item, div[class]');
+      if (!container) continue;
+      const itemNameInput = container.querySelector('input[type="text"]');
+      const rankSelect = (() => {
+        const selects = Array.from(container.querySelectorAll('select')).filter(
+          (s) => s.offsetParent !== null
+        );
+        return selects.find((s) => {
+          // ランクラベルに対応するselectを探す
+          const lbl = document.querySelector(`label[for="${s.id}"]`);
+          return lbl && lbl.textContent.replace('*', '').trim() === 'ランク';
+        }) || selects[0] || null;
+      })();
+      const suppInput = (() => {
+        const suppLabel = Array.from(container.querySelectorAll('label')).find(
+          (l) => l.textContent.trim() === '補足情報'
+        );
+        if (suppLabel) {
+          const forId = suppLabel.getAttribute('for');
+          if (forId) return document.getElementById(forId);
+          const wrapper = suppLabel.closest('.fi-fo-field-wrp, .fi-fo-field, [data-field], div');
+          if (wrapper) return wrapper.querySelector('textarea, input[type="text"]');
+        }
+        return null;
+      })();
+      entries.push({ container, itemNameInput, rankSelect, suppInput });
+    }
+    return entries;
+  }
+
+  // ランク情報フォーム内の3フィールドをまとめて返す（最後のエントリを対象にする）
   function findRankInfoFields() {
+    const entries = findAllRankEntries();
+    if (entries.length > 0) return entries[entries.length - 1];
+    // フォールバック: 旧来の方法
     return {
       itemNameInput: findFieldByLabel('項目名', 'INPUT'),
       rankSelect: findFieldByLabel('ランク', 'SELECT'),
       suppInput: findFieldByLabel('補足情報', null) ||
         (() => {
-          // フォールバック: 「補足情報」を含むlabelを探す
           const label = Array.from(document.querySelectorAll('label')).find(
             (l) => l.offsetParent !== null && l.textContent.includes('補足情報')
           );
@@ -811,26 +852,38 @@ Omit the RANK line if no grade is clearly stated.`;
     await setRankSystemSelect(settings.rankSystemName || DEFAULT_SETTINGS.rankSystemName);
     log('Step5 完了');
 
-    // Step 6: 「ランク情報を追加」ボタンをクリック
-    log('Step6: ランク情報を追加ボタンを探します');
-    const addRankBtn = Array.from(document.querySelectorAll('button')).find(
-      (b) => b.offsetParent !== null && b.textContent.trim().includes('ランク情報を追加')
+    // Step 6: 既存の「Rank」エントリを探す。なければ「ランク情報を追加」をクリック
+    log('Step6: 既存のRankエントリを確認します');
+    const rankSystemName = settings.rankSystemName || DEFAULT_SETTINGS.rankSystemName;
+    const existingEntries = findAllRankEntries();
+    const existingRankEntry = existingEntries.find(
+      (e) => e.itemNameInput && e.itemNameInput.value.trim() === rankSystemName
     );
-    if (addRankBtn) {
-      fireFullClick(addRankBtn);
-      log('Step6 完了: ランク情報を追加をクリックしました');
-      await sleep(800);
+
+    let targetEntry = null;
+    if (existingRankEntry) {
+      log(`Step6: 既存の「${rankSystemName}」エントリを使用します`);
+      targetEntry = existingRankEntry;
     } else {
-      log('Step6: ランク情報を追加ボタンが見つかりませんでした（既に展開済みの可能性）');
+      const addRankBtn = Array.from(document.querySelectorAll('button')).find(
+        (b) => b.offsetParent !== null && b.textContent.trim().includes('ランク情報を追加')
+      );
+      if (addRankBtn) {
+        fireFullClick(addRankBtn);
+        log('Step6 完了: ランク情報を追加をクリックしました');
+        await sleep(1000);
+      } else {
+        log('Step6: ランク情報を追加ボタンが見つかりませんでした');
+      }
     }
 
     // Step 7: フォームフィールドを取得（補足情報が出るまで待つ）
     log('Step7: フォームフィールドを待ちます');
-    const fields = await waitFor(() => {
+    const fields = targetEntry || await waitFor(() => {
       const f = findRankInfoFields();
       return f.suppInput ? f : null;
     }, 5000, 200);
-    if (!fields) throw new Error('補足情報入力欄が見つかりませんでした');
+    if (!fields || !fields.suppInput) throw new Error('補足情報入力欄が見つかりませんでした');
     log('Step7 完了: フォームフィールドが見つかりました');
 
     // Step 8: 既存値がある場合は上書き確認
@@ -842,9 +895,15 @@ Omit the RANK line if no grade is clearly stated.`;
       if (!overwrite) { log('上書きをキャンセルしました'); return; }
     }
 
-    // Step 9: 補足情報を入力（項目名はBaySparkが自動設定するため触らない）
+    // Step 9: 補足情報を入力
     setInputValue(fields.suppInput, conditionText);
     log('Step9 完了: 補足情報を入力しました');
+
+    // Step 9b: 項目名が空なら設定する（新規追加時にBaySparkが自動入力しない場合）
+    if (fields.itemNameInput && !fields.itemNameInput.value.trim()) {
+      setInputValue(fields.itemNameInput, rankSystemName);
+      log(`Step9b: 項目名を「${rankSystemName}」に設定しました`);
+    }
 
     // Step 10: ランクドロップダウンを設定（"C（Poor）"→"C" で照合）
     if (detectedRank && fields.rankSelect) {
