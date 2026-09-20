@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.30
+// @version      1.31
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -25,7 +25,7 @@
     categoryWaitMs: 8000,
     specificsWaitMs: 8000,
     claudeApiKey: '',
-    rankItemName: 'コンディション',
+    rankSystemName: 'Rank',
   };
 
   function loadSettings() {
@@ -466,43 +466,32 @@
    * AI コンディション入力
    * ==================================================================== */
 
-  const AI_CONDITION_SYSTEM_PROMPT = `You are an expert at extracting and translating the physical condition of second-hand goods for eBay listings.
+  const AI_CONDITION_SYSTEM_PROMPT = `You are analyzing product condition reference data for a second-hand goods eBay listing.
 
-TASK: Read the Japanese product description and extract ONLY condition-related information, then write it in concise, natural English for eBay buyers.
+TASK: From the provided reference data, extract two things:
 
-INCLUDE (only if explicitly stated):
-- Signs of use, scratches, scuffs, stains, discoloration, fading
-- Corner wear, tears, cracks, peeling, stickiness, deformation
-- Hardware condition (scratches, tarnish, damage)
-- Interior and exterior condition
-- Handle/strap condition
-- Zipper/closure function
-- Odor
-- Missing parts or functional issues
-- Damage to included accessories (only if damage is specifically described)
+1. CONDITION TEXT (for eBay buyers):
+   - Include ONLY condition-relevant information explicitly stated in the data:
+     scratches, scuffs, stains, discoloration, fading, corner wear, tears, cracks,
+     peeling, stickiness, deformation, hardware damage, interior/exterior condition,
+     handle/strap condition, zipper/closure function, odor, missing parts, functional issues
+   - Organize by part when possible: Exterior:, Interior:, Handle:, Bottom:, Hardware:, Odor:, etc.
+   - EXCLUDE: brand, model, size, color, material, accessories list, shipping, authenticity disclaimers,
+     rank criteria tables, boilerplate phrases like "please check photos"
+   - Use ONLY what is explicitly stated — never infer or speculate
+   - Output English only, no Japanese, no preamble — ready to paste directly
 
-EXCLUDE:
-- Brand name, model name, color, size, dimensions, material
-- List of included accessories (unless damage is mentioned)
-- Shipping info, purchase source
-- Authenticity disclaimers
-- Rank grade criteria tables (e.g. "S rank means like new...")
-- General notes and disclaimers
-- Phrases like "please check photos"
+2. RANK GRADE:
+   Valid grades (choose one if clearly stated): S, A, AB, B, BC, C, D
+   - Only output if the data explicitly states this item's grade
+   - Do NOT infer rank from condition wording
+   - Do NOT extract rank from a grade criteria table
 
-CRITICAL RULES:
-- Use ONLY information explicitly stated in the description — never infer or speculate
-- Do NOT add defects not mentioned
-- Do NOT omit defects that are mentioned
-- Do NOT infer condition from a rank grade (e.g. "Rank C" does not mean heavy damage)
-- Output English only, no Japanese
-- Organize by part when possible (e.g. Exterior:, Interior:, Handle:, Bottom:, Hardware:, Odor:)
-- No preamble, no explanation — output only the condition text ready to paste
+Output format — condition text first, then optionally one RANK line at the end:
+[condition text]
+RANK: [grade]
 
-RANK DETECTION:
-If the description clearly states this specific item's rank (e.g. "商品ランク:C", "ランク B", "Condition Rank: A"), add one final line:
-RANK: [letter]
-Only do this when the rank is unambiguously stated as the item's own grade — NOT from a rank criteria table.`;
+Omit the RANK line if no grade is clearly stated.`;
 
   async function callClaudeAPI(productDescription) {
     const apiKey = settings.claudeApiKey;
@@ -655,41 +644,92 @@ Only do this when the rank is unambiguously stated as the item's own grade — N
     };
   }
 
+  // AI参照データタブを開いてテキストを取得し、元のタブには戻らない
+  async function getAiReferenceData() {
+    const tab = Array.from(document.querySelectorAll('[role="tab"], button, a, li, span')).find(
+      (el) => el.textContent.trim() === 'AI参照データ' && el.offsetParent !== null
+    );
+    if (!tab) { log('AI参照データタブが見つかりませんでした'); return null; }
+
+    fireFullClick(tab);
+    await sleep(600);
+
+    // アクティブなタブパネルのテキストを取得する
+    // Filamentは role="tabpanel" または aria-controls で管理する場合がある
+    const panels = Array.from(document.querySelectorAll('[role="tabpanel"]'));
+    const visiblePanel = panels.find((p) => p.offsetParent !== null);
+    if (visiblePanel) return visiblePanel.innerText || visiblePanel.textContent;
+
+    // フォールバック: aria-selected="true" のタブに対応するパネル
+    const activeTab = document.querySelector('[role="tab"][aria-selected="true"]');
+    if (activeTab) {
+      const panelId = activeTab.getAttribute('aria-controls');
+      if (panelId) {
+        const panel = document.getElementById(panelId);
+        if (panel) return panel.innerText || panel.textContent;
+      }
+    }
+
+    // 最後の手段: ページ内で "AI参照データ" の後に現れるコンテンツブロック
+    const allText = document.body.innerText;
+    const idx = allText.indexOf('AI参照データ');
+    if (idx !== -1) return allText.slice(idx + 7, idx + 5000);
+
+    return null;
+  }
+
   async function runAiConditionInput() {
     log('AIコンディション入力を開始します');
 
-    // 1. 商品説明を取得
-    const description = getProductDescription();
-    if (!description || description.trim().length < 10) {
-      throw new Error('商品説明が取得できませんでした。商品個別編集画面で実行してください。');
+    // 1. AI参照データを先に取得する（タブ切り替えが発生するため最初に行う）
+    setProgress('AI参照データを読み取り中...');
+    const refData = await getAiReferenceData();
+    if (!refData || refData.trim().length < 10) {
+      throw new Error('AI参照データが取得できませんでした。商品個別編集画面で実行してください。');
     }
-    log(`商品説明を取得しました（${description.trim().length}文字）`);
+    log(`AI参照データを取得しました（${refData.trim().length}文字）`);
 
     // 2. Claude API 呼び出し
     setProgress('AIでコンディションを解析中...');
-    const aiResponse = await callClaudeAPI(description);
+    const aiResponse = await callClaudeAPI(refData);
     log('AI解析が完了しました');
 
-    // 3. RANK: X 行を抽出して本文から除去
+    // 3. RANK行を抽出して本文から除去
     let conditionText = aiResponse;
     let detectedRank = null;
-    const rankMatch = aiResponse.match(/^RANK:\s*([A-Za-z+\-]+)\s*$/m);
+    const rankMatch = aiResponse.match(/^RANK:\s*([A-Za-z]+)\s*$/m);
     if (rankMatch) {
       detectedRank = rankMatch[1].trim().toUpperCase();
-      conditionText = aiResponse.replace(/^RANK:\s*[A-Za-z+\-]+\s*\n?/m, '').trim();
+      conditionText = aiResponse.replace(/^RANK:\s*[A-Za-z]+\s*\n?/m, '').trim();
       log(`ランクを検出しました: ${detectedRank}`);
     }
 
     // 4. ランク情報タブを開く
     const rankTab = findRankInfoTab();
-    if (!rankTab) {
-      throw new Error('ランク情報タブが見つかりませんでした');
-    }
+    if (!rankTab) throw new Error('ランク情報タブが見つかりませんでした');
     fireFullClick(rankTab);
     log('ランク情報タブを開きました');
     await sleep(800);
 
-    // 5. 「ランク情報を追加」ボタンがある場合はクリックして入力欄を展開する
+    // 5. 使用するランクを設定する（ランク情報を追加する前に設定する必要がある）
+    const rankSystemName = settings.rankSystemName || DEFAULT_SETTINGS.rankSystemName;
+    const rankSystemSelect = findFieldByLabel('使用するランク', 'SELECT');
+    if (rankSystemSelect) {
+      const opt = Array.from(rankSystemSelect.options).find(
+        (o) => o.text.trim() === rankSystemName || o.value === rankSystemName
+      );
+      if (opt) {
+        setSelectValue(rankSystemSelect, opt.value);
+        log(`使用するランクを「${rankSystemName}」に設定しました`);
+        await sleep(500);
+      } else {
+        log(`「${rankSystemName}」に対応する選択肢が見つかりませんでした（選択肢: ${Array.from(rankSystemSelect.options).map((o) => o.text).join(', ')}）`);
+      }
+    } else {
+      log('使用するランク選択欄が見つかりませんでした');
+    }
+
+    // 6. 「ランク情報を追加」ボタンをクリックして入力欄を展開する
     const addRankBtn = Array.from(document.querySelectorAll('button')).find(
       (b) => b.offsetParent !== null && b.textContent.trim() === 'ランク情報を追加'
     );
@@ -699,51 +739,39 @@ Only do this when the rank is unambiguously stated as the item's own grade — N
       await sleep(800);
     }
 
-    // 6. ランク情報フォームのフィールドを取得
+    // 7. フォームフィールドを取得（補足情報が出るまで待つ）
     const fields = await waitFor(() => {
       const f = findRankInfoFields();
       return f.suppInput ? f : null;
     }, 5000, 200);
-    if (!fields) {
-      throw new Error('補足情報入力欄が見つかりませんでした');
-    }
+    if (!fields) throw new Error('補足情報入力欄が見つかりませんでした');
 
-    // 7. 既存値がある場合は上書き確認
+    // 8. 既存値がある場合は上書き確認
     const existingValue = fields.suppInput.value || '';
     if (existingValue.trim()) {
       const overwrite = window.confirm(
         `補足情報に既存の内容があります。上書きしますか？\n\n現在の内容:\n${existingValue.trim().slice(0, 300)}`
       );
-      if (!overwrite) {
-        log('上書きをキャンセルしました');
-        return;
-      }
+      if (!overwrite) { log('上書きをキャンセルしました'); return; }
     }
 
-    // 8. 項目名を入力（設定値、デフォルト「コンディション」）
-    if (fields.itemNameInput) {
-      setInputValue(fields.itemNameInput, settings.rankItemName || DEFAULT_SETTINGS.rankItemName);
-      log(`項目名を「${settings.rankItemName || DEFAULT_SETTINGS.rankItemName}」に設定しました`);
-    } else {
-      log('項目名フィールドが見つかりませんでした');
-    }
-
-    // 9. 補足情報を入力
+    // 9. 補足情報を入力（項目名はBaySparkが使用するランクに応じて自動設定するため触らない）
     setInputValue(fields.suppInput, conditionText);
     log('補足情報を入力しました');
 
-    // 10. ランクドロップダウンを設定（AIで検出できた場合のみ）
+    // 10. ランクドロップダウンを設定（"C（Poor）"→"C" のように括弧前の文字で照合）
     if (detectedRank && fields.rankSelect) {
-      const option = Array.from(fields.rankSelect.options).find(
-        (o) => o.value.toUpperCase() === detectedRank || o.text.toUpperCase().replace('*', '').trim() === detectedRank
-      );
-      if (option) {
-        setSelectValue(fields.rankSelect, option.value);
+      const opt = Array.from(fields.rankSelect.options).find((o) => {
+        const key = o.text.replace(/[（(].*/, '').trim().toUpperCase();
+        return key === detectedRank || o.value.toUpperCase() === detectedRank;
+      });
+      if (opt) {
+        setSelectValue(fields.rankSelect, opt.value);
         log(`ランクを「${detectedRank}」に設定しました`);
       } else {
-        log(`ランク「${detectedRank}」に対応するオプションが見つかりませんでした（選択肢: ${Array.from(fields.rankSelect.options).map((o) => o.text).join(', ')}）`);
+        log(`ランク「${detectedRank}」が見つかりません（選択肢: ${Array.from(fields.rankSelect.options).map((o) => o.text).join(', ')}）`);
       }
-    } else if (detectedRank && !fields.rankSelect) {
+    } else if (detectedRank) {
       log(`ランク「${detectedRank}」を検出しましたが、ランク選択欄が見つかりませんでした`);
     }
 
@@ -1030,8 +1058,8 @@ Only do this when the rank is unambiguously stated as the item's own grade — N
         <input id="bsh-set-specifics-wait" type="number" style="width:100%;box-sizing:border-box;margin-top:4px;padding:4px;">
       </label>
       <label style="display:block;margin-bottom:8px;">
-        ランク情報の項目名（デフォルト: コンディション）
-        <input id="bsh-set-rank-item-name" type="text" style="width:100%;box-sizing:border-box;margin-top:4px;padding:4px;">
+        使用するランク（例: Rank / Rank (サイズ有)）
+        <input id="bsh-set-rank-system-name" type="text" style="width:100%;box-sizing:border-box;margin-top:4px;padding:4px;">
       </label>
       <label style="display:block;margin-bottom:4px;">
         Claude APIキー（AIコンディション入力で使用）
@@ -1052,7 +1080,7 @@ Only do this when the rank is unambiguously stated as the item's own grade — N
     box.querySelector('#bsh-set-category').value = settings.categoryName;
     box.querySelector('#bsh-set-category-wait').value = settings.categoryWaitMs;
     box.querySelector('#bsh-set-specifics-wait').value = settings.specificsWaitMs;
-    box.querySelector('#bsh-set-rank-item-name').value = settings.rankItemName || DEFAULT_SETTINGS.rankItemName;
+    box.querySelector('#bsh-set-rank-system-name').value = settings.rankSystemName || DEFAULT_SETTINGS.rankSystemName;
     box.querySelector('#bsh-set-api-key').value = settings.claudeApiKey || '';
 
     box.querySelector('#bsh-set-cancel').addEventListener('click', () => overlay.remove());
@@ -1061,7 +1089,7 @@ Only do this when the rank is unambiguously stated as the item's own grade — N
       settings.categoryName = box.querySelector('#bsh-set-category').value || DEFAULT_SETTINGS.categoryName;
       settings.categoryWaitMs = parseInt(box.querySelector('#bsh-set-category-wait').value, 10) || DEFAULT_SETTINGS.categoryWaitMs;
       settings.specificsWaitMs = parseInt(box.querySelector('#bsh-set-specifics-wait').value, 10) || DEFAULT_SETTINGS.specificsWaitMs;
-      settings.rankItemName = box.querySelector('#bsh-set-rank-item-name').value.trim() || DEFAULT_SETTINGS.rankItemName;
+      settings.rankSystemName = box.querySelector('#bsh-set-rank-system-name').value.trim() || DEFAULT_SETTINGS.rankSystemName;
       settings.claudeApiKey = box.querySelector('#bsh-set-api-key').value.trim();
       saveSettings(settings);
       log('設定を保存しました');
