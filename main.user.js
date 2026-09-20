@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.31
+// @version      1.32
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -824,7 +824,8 @@ Omit the RANK line if no grade is clearly stated.`;
     return true;
   }
 
-  // リストページでチェック済み商品を一括処理する（最初の1件目を開くだけ）
+  // リストページでチェック済み商品を一括処理する
+  // 新しいタブではなく同じタブで遷移する（ポップアップブロック回避）
   async function runBulkAiConditionInput() {
     const urls = getCheckedEditUrls();
     if (urls.length === 0) {
@@ -834,8 +835,14 @@ Omit the RANK line if no grade is clearly stated.`;
       );
     }
     log(`${urls.length}件を順番に処理します`);
-    localStorage.setItem(AUTORUN_KEY, JSON.stringify({ urls, index: 0 }));
-    window.open(urls[0], '_blank');
+    localStorage.setItem(AUTORUN_KEY, JSON.stringify({
+      urls,
+      index: 0,
+      returnUrl: window.location.href,
+    }));
+    log('1件目に移動します...');
+    await sleep(500);
+    window.location.href = urls[0];
   }
 
   // 編集ページ起動時に自動実行キューをチェックし、該当する場合は自動処理する
@@ -847,41 +854,42 @@ Omit the RANK line if no grade is clearly stated.`;
     try { queue = JSON.parse(raw); } catch (e) { localStorage.removeItem(AUTORUN_KEY); return; }
     if (!queue.urls || queue.index >= queue.urls.length) { localStorage.removeItem(AUTORUN_KEY); return; }
 
-    // 現在のページが期待するURLと一致するか確認
-    const expectedPath = new URL(queue.urls[queue.index]).pathname;
-    const currentPath = window.location.pathname;
-    if (!currentPath.includes(expectedPath.replace(/\/edit$/, '').split('/').pop())) return;
+    // 現在のURLと期待するURLのパスが一致するか確認
+    const normalize = (url) => new URL(url).pathname.replace(/\/$/, '');
+    if (normalize(window.location.href) !== normalize(queue.urls[queue.index])) return;
 
     const total = queue.urls.length;
     const current = queue.index + 1;
     log(`AI一括処理: ${current} / ${total} 件目`);
     setProgress(`AI一括処理中 (${current}/${total})...`);
 
-    await sleep(2500); // ページの初期化を待つ
+    // ページの初期化（Livewireのマウント）を待つ
+    await sleep(3000);
 
     try {
       await runAiConditionInput();
       await sleep(500);
       await saveProductForm();
+      log(`${current}件目の処理が完了しました`);
     } catch (e) {
-      log(`エラー（スキップ）: ${e.message}`);
+      log(`エラー（スキップして次へ）: ${e.message}`);
     }
 
-    await sleep(1000);
+    await sleep(1500);
 
     const nextIndex = queue.index + 1;
     if (nextIndex < total) {
       queue.index = nextIndex;
       localStorage.setItem(AUTORUN_KEY, JSON.stringify(queue));
-      log(`次の商品を開きます (${nextIndex + 1}/${total})`);
-      window.open(queue.urls[nextIndex], '_blank');
+      log(`次の商品へ移動します (${nextIndex + 1}/${total})`);
+      await sleep(500);
+      window.location.href = queue.urls[nextIndex];
     } else {
       localStorage.removeItem(AUTORUN_KEY);
-      log('全件の処理が完了しました');
+      log('全件の処理が完了しました。リストに戻ります...');
+      await sleep(1000);
+      if (queue.returnUrl) window.location.href = queue.returnUrl;
     }
-
-    await sleep(800);
-    window.close();
   }
 
   /* ======================================================================
