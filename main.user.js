@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.29
+// @version      1.30
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -25,6 +25,7 @@
     categoryWaitMs: 8000,
     specificsWaitMs: 8000,
     claudeApiKey: '',
+    rankItemName: 'コンディション',
   };
 
   function loadSettings() {
@@ -607,64 +608,51 @@ Only do this when the rank is unambiguously stated as the item's own grade — N
     ) || null;
   }
 
-  // 「補足情報」ラベルに紐付く textarea/input を探す
-  function findSupplementaryInput() {
-    const labels = Array.from(document.querySelectorAll('label'));
-    const label = labels.find((l) => l.textContent.trim().includes('補足情報'));
-
-    if (label) {
-      const forId = label.getAttribute('for');
-      if (forId) {
-        const el = document.getElementById(forId);
-        if (el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT')) return el;
-      }
-      const parent = label.closest('.fi-fo-field-wrp, .fi-fo-field, [data-field], div');
-      if (parent) {
-        const ta = parent.querySelector('textarea');
-        if (ta) return ta;
-        const inp = parent.querySelector('input[type="text"]');
-        if (inp) return inp;
-      }
-      // label の次の兄弟要素を辿る
-      let sib = label.nextElementSibling;
-      while (sib) {
-        if (sib.tagName === 'TEXTAREA' || sib.tagName === 'INPUT') return sib;
-        const found = sib.querySelector('textarea, input[type="text"]');
-        if (found) return found;
-        sib = sib.nextElementSibling;
-      }
-    }
-    return null;
-  }
-
-  // 「使用するランク」ラベルに紐付く select を探す
-  function findRankSelect() {
-    const labels = Array.from(document.querySelectorAll('label'));
-    const label = labels.find((l) => {
-      const text = l.textContent.trim();
-      return text === '使用するランク' || text === 'ランク' ||
-        (text.includes('ランク') && !text.includes('情報') && !text.includes('補足'));
-    });
-    if (!label) return null;
-
-    const forId = label.getAttribute('for');
-    if (forId) {
-      const el = document.getElementById(forId);
-      if (el && el.tagName === 'SELECT') return el;
-    }
-    const parent = label.closest('.fi-fo-field-wrp, .fi-fo-field, [data-field], div');
-    if (parent) {
-      const sel = parent.querySelector('select');
-      if (sel) return sel;
-    }
-    return null;
-  }
-
   function setSelectValue(select, value) {
     const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
     nativeSetter.call(select, value);
     select.dispatchEvent(new Event('input', { bubbles: true }));
     select.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  // labelテキストからフィールドの input/textarea/select を取得する汎用ヘルパー
+  function findFieldByLabel(labelText, tag) {
+    const labels = Array.from(document.querySelectorAll('label')).filter(
+      (l) => l.offsetParent !== null && l.textContent.replace('*', '').trim() === labelText
+    );
+    for (const label of labels) {
+      const forId = label.getAttribute('for');
+      if (forId) {
+        const el = document.getElementById(forId);
+        if (el && (!tag || el.tagName === tag)) return el;
+      }
+      const parent = label.closest('.fi-fo-field-wrp, .fi-fo-field, [data-field], div');
+      if (parent) {
+        const el = tag
+          ? parent.querySelector(tag.toLowerCase())
+          : parent.querySelector('input[type="text"], textarea, select');
+        if (el) return el;
+      }
+    }
+    return null;
+  }
+
+  // ランク情報フォーム内の3フィールドをまとめて返す
+  function findRankInfoFields() {
+    return {
+      itemNameInput: findFieldByLabel('項目名', 'INPUT'),
+      rankSelect: findFieldByLabel('ランク', 'SELECT'),
+      suppInput: findFieldByLabel('補足情報', null) ||
+        (() => {
+          // フォールバック: 「補足情報」を含むlabelを探す
+          const label = Array.from(document.querySelectorAll('label')).find(
+            (l) => l.offsetParent !== null && l.textContent.includes('補足情報')
+          );
+          if (!label) return null;
+          const parent = label.closest('.fi-fo-field-wrp, .fi-fo-field, [data-field], div');
+          return parent ? (parent.querySelector('textarea') || parent.querySelector('input[type="text"]')) : null;
+        })(),
+    };
   }
 
   async function runAiConditionInput() {
@@ -711,14 +699,17 @@ Only do this when the rank is unambiguously stated as the item's own grade — N
       await sleep(800);
     }
 
-    // 6. 補足情報欄を特定
-    const suppInput = await waitFor(() => findSupplementaryInput(), 5000, 200);
-    if (!suppInput) {
+    // 6. ランク情報フォームのフィールドを取得
+    const fields = await waitFor(() => {
+      const f = findRankInfoFields();
+      return f.suppInput ? f : null;
+    }, 5000, 200);
+    if (!fields) {
       throw new Error('補足情報入力欄が見つかりませんでした');
     }
 
     // 7. 既存値がある場合は上書き確認
-    const existingValue = suppInput.value || '';
+    const existingValue = fields.suppInput.value || '';
     if (existingValue.trim()) {
       const overwrite = window.confirm(
         `補足情報に既存の内容があります。上書きしますか？\n\n現在の内容:\n${existingValue.trim().slice(0, 300)}`
@@ -729,26 +720,31 @@ Only do this when the rank is unambiguously stated as the item's own grade — N
       }
     }
 
-    // 8. 補足情報を入力
-    setInputValue(suppInput, conditionText);
+    // 8. 項目名を入力（設定値、デフォルト「コンディション」）
+    if (fields.itemNameInput) {
+      setInputValue(fields.itemNameInput, settings.rankItemName || DEFAULT_SETTINGS.rankItemName);
+      log(`項目名を「${settings.rankItemName || DEFAULT_SETTINGS.rankItemName}」に設定しました`);
+    } else {
+      log('項目名フィールドが見つかりませんでした');
+    }
+
+    // 9. 補足情報を入力
+    setInputValue(fields.suppInput, conditionText);
     log('補足情報を入力しました');
 
-    // 9. ランクプルダウンを設定（検出できた場合のみ）
-    if (detectedRank) {
-      const rankSelect = findRankSelect();
-      if (rankSelect) {
-        const option = Array.from(rankSelect.options).find(
-          (o) => o.value.toUpperCase() === detectedRank || o.text.toUpperCase().trim() === detectedRank
-        );
-        if (option) {
-          setSelectValue(rankSelect, option.value);
-          log(`ランクを「${detectedRank}」に設定しました`);
-        } else {
-          log(`ランク「${detectedRank}」に対応するオプションが見つかりませんでした`);
-        }
+    // 10. ランクドロップダウンを設定（AIで検出できた場合のみ）
+    if (detectedRank && fields.rankSelect) {
+      const option = Array.from(fields.rankSelect.options).find(
+        (o) => o.value.toUpperCase() === detectedRank || o.text.toUpperCase().replace('*', '').trim() === detectedRank
+      );
+      if (option) {
+        setSelectValue(fields.rankSelect, option.value);
+        log(`ランクを「${detectedRank}」に設定しました`);
       } else {
-        log(`ランク「${detectedRank}」を検出しましたが、ランク選択欄が見つかりませんでした`);
+        log(`ランク「${detectedRank}」に対応するオプションが見つかりませんでした（選択肢: ${Array.from(fields.rankSelect.options).map((o) => o.text).join(', ')}）`);
       }
+    } else if (detectedRank && !fields.rankSelect) {
+      log(`ランク「${detectedRank}」を検出しましたが、ランク選択欄が見つかりませんでした`);
     }
 
     log('コンディションを入力しました');
@@ -1033,6 +1029,10 @@ Only do this when the rank is unambiguously stated as the item's own grade — N
         Item Specifics待機時間（ミリ秒）
         <input id="bsh-set-specifics-wait" type="number" style="width:100%;box-sizing:border-box;margin-top:4px;padding:4px;">
       </label>
+      <label style="display:block;margin-bottom:8px;">
+        ランク情報の項目名（デフォルト: コンディション）
+        <input id="bsh-set-rank-item-name" type="text" style="width:100%;box-sizing:border-box;margin-top:4px;padding:4px;">
+      </label>
       <label style="display:block;margin-bottom:4px;">
         Claude APIキー（AIコンディション入力で使用）
         <input id="bsh-set-api-key" type="password" placeholder="sk-ant-..." style="width:100%;box-sizing:border-box;margin-top:4px;padding:4px;font-family:monospace;">
@@ -1052,6 +1052,7 @@ Only do this when the rank is unambiguously stated as the item's own grade — N
     box.querySelector('#bsh-set-category').value = settings.categoryName;
     box.querySelector('#bsh-set-category-wait').value = settings.categoryWaitMs;
     box.querySelector('#bsh-set-specifics-wait').value = settings.specificsWaitMs;
+    box.querySelector('#bsh-set-rank-item-name').value = settings.rankItemName || DEFAULT_SETTINGS.rankItemName;
     box.querySelector('#bsh-set-api-key').value = settings.claudeApiKey || '';
 
     box.querySelector('#bsh-set-cancel').addEventListener('click', () => overlay.remove());
@@ -1060,6 +1061,7 @@ Only do this when the rank is unambiguously stated as the item's own grade — N
       settings.categoryName = box.querySelector('#bsh-set-category').value || DEFAULT_SETTINGS.categoryName;
       settings.categoryWaitMs = parseInt(box.querySelector('#bsh-set-category-wait').value, 10) || DEFAULT_SETTINGS.categoryWaitMs;
       settings.specificsWaitMs = parseInt(box.querySelector('#bsh-set-specifics-wait').value, 10) || DEFAULT_SETTINGS.specificsWaitMs;
+      settings.rankItemName = box.querySelector('#bsh-set-rank-item-name').value.trim() || DEFAULT_SETTINGS.rankItemName;
       settings.claudeApiKey = box.querySelector('#bsh-set-api-key').value.trim();
       saveSettings(settings);
       log('設定を保存しました');
