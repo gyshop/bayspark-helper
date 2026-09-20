@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.46
+// @version      1.47
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -504,10 +504,11 @@ TASK: From the provided reference data, extract two things:
      rank criteria tables, boilerplate phrases like "please check photos"
    - Use ONLY what is explicitly stated — never infer or speculate
    - ALWAYS output in English only — never output Japanese or any other language
-   - If no condition information is present in the data, output exactly: No condition details available.
+   - If no condition information is present in the data, output exactly:
+     Shows signs of use. Please check the photos for the actual condition.
 
 2. RANK GRADE:
-   Valid grades: S, A, AB, B, BC, C, D
+   Valid grades (in order): S, A, AB, B, BC, C, D
    Grade criteria:
    - S: Like new / unused / no signs of use
    - A: Minor signs of use, no notable flaws
@@ -518,8 +519,10 @@ TASK: From the provided reference data, extract two things:
    - D: Heavy damage, major defects, poor condition
 
    Rules:
-   - If the data explicitly states a grade → use it
-   - If no explicit grade → judge based on the condition description above
+   - If the data explicitly states a grade → use it as-is
+   - If no condition information is present → output RANK: B
+   - If judging from condition description (no explicit grade) → judge the grade, then downgrade one step:
+     S→A, A→AB, AB→B, B→BC, BC→C, C→D, D→D
    - Do NOT extract rank from a grade criteria table in the data
    - Always output a RANK line
 
