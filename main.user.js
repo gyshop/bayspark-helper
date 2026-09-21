@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.47
+// @version      1.48
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -946,6 +946,7 @@ RANK: [grade]`;
    * ==================================================================== */
 
   const AUTORUN_KEY = 'bayspark_helper_autorun_queue';
+  const AUTORUN_REDIRECT_KEY = 'bayspark_helper_after_save';
 
   // チェックされた行から編集ページURLを収集する
   function getCheckedEditUrls() {
@@ -1017,7 +1018,20 @@ RANK: [grade]`;
     if (!queue.urls || queue.index >= queue.urls.length) { localStorage.removeItem(AUTORUN_KEY); return; }
 
     const normalize = (url) => new URL(url, window.location.href).pathname.replace(/\/$/, '');
-    if (normalize(window.location.href) !== normalize(queue.urls[queue.index])) return;
+    const currentPath = normalize(window.location.href);
+    const expectedPath = normalize(queue.urls[queue.index]);
+
+    if (currentPath !== expectedPath) {
+      // 保存後にFilamentがリダイレクトした場合: フラグがあれば次URLへ移動
+      const afterSave = localStorage.getItem(AUTORUN_REDIRECT_KEY);
+      if (afterSave) {
+        localStorage.removeItem(AUTORUN_REDIRECT_KEY);
+        log(`保存後リダイレクト検出 → ${queue.index + 1}件目に移動します`);
+        await sleep(300);
+        window.location.href = queue.urls[queue.index];
+      }
+      return;
+    }
 
     const current = queue.index;
     const total = queue.urls.length;
@@ -1039,13 +1053,16 @@ RANK: [grade]`;
     try {
       await runAiConditionInput();
       await sleep(500);
+      // 保存前にリダイレクト期待フラグをセット（Filamentがリダイレクトした場合の対応）
+      localStorage.setItem(AUTORUN_REDIRECT_KEY, '1');
       await saveProductForm();
+      localStorage.removeItem(AUTORUN_REDIRECT_KEY); // 同ページに留まった場合はフラグ削除
       log(`${current + 1}件目の処理が完了しました`);
     } catch (e) {
+      localStorage.removeItem(AUTORUN_REDIRECT_KEY);
       log(`エラー（スキップして次へ）: ${e.message}`);
     }
 
-    // 保存後のFilamentリダイレクトより先に次URLへ移動する（遅延なし）
     if (nextIndex < total) {
       log(`次の商品へ移動します (${nextIndex + 1}/${total})`);
       window.location.href = queue.urls[nextIndex];
