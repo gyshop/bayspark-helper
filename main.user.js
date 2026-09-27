@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.48
+// @version      1.49
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -495,16 +495,21 @@
 TASK: From the provided reference data, extract two things:
 
 1. CONDITION TEXT (for eBay buyers):
-   - Include ONLY condition-relevant information explicitly stated in the data:
+   - Include ONLY negative condition details explicitly stated in the data:
      scratches, scuffs, stains, discoloration, fading, corner wear, tears, cracks,
-     peeling, stickiness, deformation, hardware damage, interior/exterior condition,
-     handle/strap condition, zipper/closure function, odor, missing parts, functional issues
+     peeling, stickiness, deformation, hardware damage, missing parts, functional issues,
+     interior/exterior damage, handle/strap wear, zipper/closure issues, odor
    - Organize by part when possible: Exterior:, Interior:, Handle:, Bottom:, Hardware:, Odor:, etc.
    - EXCLUDE: brand, model, size, color, material, accessories list, shipping, authenticity disclaimers,
      rank criteria tables, boilerplate phrases like "please check photos"
+   - STRICTLY FORBIDDEN: Do NOT include any positive or flattering expressions such as
+     "excellent", "great", "good", "beautiful", "mint", "like new", "pristine", "clean",
+     "well-maintained", "barely used", "hardly used", "no signs of use", or any equivalent.
+     Even if the source data says the item is in excellent condition, do NOT reflect that in the text.
    - Use ONLY what is explicitly stated — never infer or speculate
    - ALWAYS output in English only — never output Japanese or any other language
-   - If no condition information is present in the data, output exactly:
+   - If no negative condition details are present (including when only positive descriptions are given),
+     output exactly:
      Shows signs of use. Please check the photos for the actual condition.
 
 2. RANK GRADE:
