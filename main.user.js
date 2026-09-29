@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.51
+// @version      1.52
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -564,8 +564,8 @@ RANK: [grade]`;
       messages: [{ role: 'user', content: `Product description:\n${cleaned}` }],
     });
 
-    const MAX_RETRIES = 3;
-    const RETRY_DELAYS = [5000, 10000, 20000]; // 503時のリトライ待機時間
+    const MAX_RETRIES = 5;
+    const RETRY_DELAYS = [10000, 20000, 40000, 60000]; // 503時のリトライ待機時間
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       const result = await new Promise((resolve, reject) => {
@@ -860,8 +860,9 @@ RANK: [grade]`;
     }
     log(`Step1 完了: AI参照データ取得（${refData.trim().length}文字）`);
 
-    // Step 2: Claude API 呼び出し
+    // Step 2: Claude API 呼び出し（連続リクエスト対策で3秒待機）
     setProgress('AIでコンディションを解析中...');
+    await sleep(3000);
     log('Step2: Claude APIを呼び出します');
     const aiResponse = await callClaudeAPI(refData);
     log('Step2 完了: AI解析完了');
