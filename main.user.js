@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.49
+// @version      1.50
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -500,7 +500,7 @@ TASK: From the provided reference data, extract two things:
      peeling, stickiness, deformation, hardware damage, missing parts, functional issues,
      interior/exterior damage, handle/strap wear, zipper/closure issues, odor
    - Organize by part when possible: Exterior:, Interior:, Handle:, Bottom:, Hardware:, Odor:, etc.
-   - EXCLUDE: brand, model, size, color, material, accessories list, shipping, authenticity disclaimers,
+   - EXCLUDE: brand, model, color, material, accessories list, shipping, authenticity disclaimers,
      rank criteria tables, boilerplate phrases like "please check photos"
    - STRICTLY FORBIDDEN: Do NOT include any positive or flattering expressions such as
      "excellent", "great", "good", "beautiful", "mint", "like new", "pristine", "clean",
@@ -511,6 +511,10 @@ TASK: From the provided reference data, extract two things:
    - If no negative condition details are present (including when only positive descriptions are given),
      output exactly:
      Shows signs of use. Please check the photos for the actual condition.
+   - SIZE: If size/dimensions are stated in the data, append a "Size:" line at the end of the condition text.
+     Convert all measurements to inches (1 cm = 0.39 in, round to 1 decimal place).
+     Format: Size: W x H x D in (or W x H in if depth not given, or single measurement as appropriate).
+     If no size information is present, omit the Size line entirely.
 
 2. RANK GRADE:
    Valid grades (in order): S, A, AB, B, BC, C, D
