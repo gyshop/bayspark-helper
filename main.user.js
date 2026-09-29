@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.50
+// @version      1.51
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -557,40 +557,61 @@ RANK: [grade]`;
       throw new Error('商品説明が空か短すぎます');
     }
 
-    return new Promise((resolve, reject) => {
-      GM_xmlhttpRequest({
-        method: 'POST',
-        url: 'https://api.anthropic.com/v1/messages',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-        data: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 600,
-          system: AI_CONDITION_SYSTEM_PROMPT,
-          messages: [{ role: 'user', content: `Product description:\n${cleaned}` }],
-        }),
-        onload(res) {
-          if (res.status !== 200) {
-            reject(new Error(`API エラー (${res.status}): ${res.responseText.slice(0, 200)}`));
-            return;
-          }
-          try {
-            const data = JSON.parse(res.responseText);
-            const text = data.content?.[0]?.text?.trim();
-            if (!text) { reject(new Error('AIから有効な回答が得られませんでした')); return; }
-            resolve(text);
-          } catch (e) {
-            reject(new Error(`APIレスポンス解析エラー: ${e.message}`));
-          }
-        },
-        onerror() {
-          reject(new Error('API通信エラーが発生しました'));
-        },
-      });
+    const requestData = JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 600,
+      system: AI_CONDITION_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: `Product description:\n${cleaned}` }],
     });
+
+    const MAX_RETRIES = 3;
+    const RETRY_DELAYS = [5000, 10000, 20000]; // 503時のリトライ待機時間
+
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      const result = await new Promise((resolve, reject) => {
+        GM_xmlhttpRequest({
+          method: 'POST',
+          url: 'https://api.anthropic.com/v1/messages',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          data: requestData,
+          onload(res) {
+            if (res.status === 503 || res.status === 529) {
+              resolve({ retry: true, status: res.status });
+              return;
+            }
+            if (res.status !== 200) {
+              reject(new Error(`API エラー (${res.status}): ${res.responseText.slice(0, 200)}`));
+              return;
+            }
+            try {
+              const data = JSON.parse(res.responseText);
+              const text = data.content?.[0]?.text?.trim();
+              if (!text) { reject(new Error('AIから有効な回答が得られませんでした')); return; }
+              resolve({ retry: false, text });
+            } catch (e) {
+              reject(new Error(`APIレスポンス解析エラー: ${e.message}`));
+            }
+          },
+          onerror() {
+            reject(new Error('API通信エラーが発生しました'));
+          },
+        });
+      });
+
+      if (!result.retry) return result.text;
+
+      if (attempt < MAX_RETRIES - 1) {
+        const wait = RETRY_DELAYS[attempt];
+        log(`APIサーバー混雑 (${result.status})。${wait / 1000}秒後にリトライします... (${attempt + 1}/${MAX_RETRIES})`);
+        await sleep(wait);
+      } else {
+        throw new Error(`API エラー (${result.status}): サーバーが混雑しています。しばらく待ってから再試行してください。`);
+      }
+    }
   }
 
   // 商品説明欄を取得する。FilamentのリッチテキストエディタはTipTap等のcontenteditable、
