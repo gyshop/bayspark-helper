@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.53
+// @version      1.54
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -530,8 +530,18 @@ TASK: From the provided reference data, extract two things:
    Rules:
    - If the data explicitly states a grade → use it as-is
    - If no condition information is present → output RANK: B
-   - If judging from condition description (no explicit grade) → judge the grade, then downgrade one step:
-     S→A, A→AB, AB→B, B→BC, BC→C, C→D, D→D
+   - If judging from condition description (no explicit grade):
+     Step 1 — map the description to an initial grade using these reference points
+     (apply flexibly; most descriptions won't use these exact words):
+       "未使用", "新品", "未使用品", "新品同様", "unused", "new"  → S
+       "極美品", "ほぼ未使用", "almost unused", "near mint"       → A
+       "美品", "綺麗", "very good", "excellent"                   → AB
+       "良品", "良好", "good", "clean"                            → B
+       "やや難", "使用感あり", "fair", "some wear"                → BC
+       "難あり", "傷多", "poor", "heavy wear"                     → C
+       "ジャンク", "junk", "defective"                            → D
+     Step 2 — downgrade one step: S→A, A→AB, AB→B, B→BC, BC→C, C→D, D→D
+     Use judgment when the description is vague or partial.
    - Do NOT extract rank from a grade criteria table in the data
    - Always output a RANK line
 
