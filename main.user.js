@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.54
+// @version      1.55
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -531,17 +531,20 @@ TASK: From the provided reference data, extract two things:
    - If the data explicitly states a grade → use it as-is
    - If no condition information is present → output RANK: B
    - If judging from condition description (no explicit grade):
-     Step 1 — map the description to an initial grade using these reference points
-     (apply flexibly; most descriptions won't use these exact words):
+     IMPORTANT: Base the grade on NEGATIVE indicators only. Ignore positive phrases like
+     "良い状態", "綺麗", "美しい", "とても良い", "excellent", "great condition", "clean" —
+     these are seller bias and must NOT raise the grade.
+     Step 1 — identify the worst negative indicator mentioned, then map to initial grade:
+       No negative indicators mentioned at all                    → B
        "未使用", "新品", "未使用品", "新品同様", "unused", "new"  → S
-       "極美品", "ほぼ未使用", "almost unused", "near mint"       → A
-       "美品", "綺麗", "very good", "excellent"                   → AB
-       "良品", "良好", "good", "clean"                            → B
-       "やや難", "使用感あり", "fair", "some wear"                → BC
+       "ほぼ未使用", "almost unused", "near mint"                 → A
+       "軽微な使用感", "薄いスレ", "light wear", "minor scuff"   → AB
+       "使用感あり", "スレあり", "some wear", "scratches"         → B
+       "目立つ傷", "汚れあり", "noticeable wear", "stains"        → BC
        "難あり", "傷多", "poor", "heavy wear"                     → C
        "ジャンク", "junk", "defective"                            → D
      Step 2 — downgrade one step: S→A, A→AB, AB→B, B→BC, BC→C, C→D, D→D
-     Use judgment when the description is vague or partial.
+     When in doubt, choose the stricter (lower) grade.
    - Do NOT extract rank from a grade criteria table in the data
    - Always output a RANK line
 
