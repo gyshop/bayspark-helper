@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.56
+// @version      1.57
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -531,9 +531,11 @@ TASK: From the provided reference data, extract two things:
    - If the data explicitly states a grade → use it as-is
    - If no condition information is present → output RANK: B
    - If judging from condition description (no explicit grade):
-     IMPORTANT: Base the grade on NEGATIVE indicators only. Ignore positive phrases like
-     "良い状態", "綺麗", "美しい", "とても良い", "excellent", "great condition", "clean" —
-     these are seller bias and must NOT raise the grade.
+     CRITICAL RULE: Grade is determined SOLELY by the worst negative indicator present.
+     Positive phrases like "美品", "良品", "良い状態", "綺麗", "良好", "excellent", "great condition", "clean"
+     are seller bias — they MUST be completely ignored and have ZERO effect on the grade.
+     Even if the description says "美品" but also mentions ANY scratch, scuff, wear, or damage,
+     the grade must reflect those negatives, NOT the word "美品".
      Step 1 — identify the worst negative indicator mentioned, then map to initial grade:
        No negative indicators mentioned at all                    → B
        "未使用", "新品", "未使用品", "新品同様", "unused", "new"  → S
@@ -546,6 +548,7 @@ TASK: From the provided reference data, extract two things:
      Step 2 — apply downgrade rule based on what was found:
        - If any negative indicator was used in Step 1 → use the grade AS-IS (no downgrade)
        - If NO negative indicator was found (only positive phrases or vague description) → downgrade one step: S→A, A→AB, AB→B, B→BC, BC→C, C→D, D→D
+     Example: "金具の小傷・スレあり、美品" → negatives found (小傷・スレ) → AB, no downgrade → RANK: AB
      When in doubt, choose the stricter (lower) grade.
    - Do NOT extract rank from a grade criteria table in the data
    - Always output a RANK line
