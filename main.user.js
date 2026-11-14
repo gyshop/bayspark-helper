@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.57
+// @version      1.58
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -548,7 +548,10 @@ TASK: From the provided reference data, extract two things:
      Step 2 — apply downgrade rule based on what was found:
        - If any negative indicator was used in Step 1 → use the grade AS-IS (no downgrade)
        - If NO negative indicator was found (only positive phrases or vague description) → downgrade one step: S→A, A→AB, AB→B, B→BC, BC→C, C→D, D→D
+     Multiple negatives rule: if 3 or more distinct negative indicators are mentioned
+     (e.g. scratches + scuffs + plating wear + wrinkles), downgrade the mapped grade one additional step.
      Example: "金具の小傷・スレあり、美品" → negatives found (小傷・スレ) → AB, no downgrade → RANK: AB
+     Example: "メッキ剥がれ・小傷・スレ・シワあり、美品" → multiple negatives (4種) → AB → downgrade one → RANK: B
      When in doubt, choose the stricter (lower) grade.
    - Do NOT extract rank from a grade criteria table in the data
    - Always output a RANK line
