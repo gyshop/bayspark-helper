@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.58
+// @version      1.59
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -536,22 +536,33 @@ TASK: From the provided reference data, extract two things:
      are seller bias — they MUST be completely ignored and have ZERO effect on the grade.
      Even if the description says "美品" but also mentions ANY scratch, scuff, wear, or damage,
      the grade must reflect those negatives, NOT the word "美品".
-     Step 1 — identify the worst negative indicator mentioned, then map to initial grade:
-       No negative indicators mentioned at all                    → B
-       "未使用", "新品", "未使用品", "新品同様", "unused", "new"  → S
-       "ほぼ未使用", "almost unused", "near mint"                 → A
-       "軽微な使用感", "薄いスレ", "light wear", "minor scuff"   → AB
-       "使用感あり", "スレあり", "some wear", "scratches"         → B
-       "目立つ傷", "汚れあり", "noticeable wear", "stains"        → BC
-       "難あり", "傷多", "poor", "heavy wear"                     → C
-       "ジャンク", "junk", "defective"                            → D
-     Step 2 — apply downgrade rule based on what was found:
-       - If any negative indicator was used in Step 1 → use the grade AS-IS (no downgrade)
-       - If NO negative indicator was found (only positive phrases or vague description) → downgrade one step: S→A, A→AB, AB→B, B→BC, BC→C, C→D, D→D
-     Multiple negatives rule: if 3 or more distinct negative indicators are mentioned
-     (e.g. scratches + scuffs + plating wear + wrinkles), downgrade the mapped grade one additional step.
-     Example: "金具の小傷・スレあり、美品" → negatives found (小傷・スレ) → AB, no downgrade → RANK: AB
-     Example: "メッキ剥がれ・小傷・スレ・シワあり、美品" → multiple negatives (4種) → AB → downgrade one → RANK: B
+     Rank definitions (use these as the standard):
+       S  = Unused or virtually unused. No signs of wear at all.
+       A  = Minimal signs of use. No notable flaws or damage.
+       AB = Some signs of use. Small scratches, slight stains, or minor wear present.
+       B  = Clear signs of use. Noticeable scratches, stains, or wear. Still fully functional.
+       BC = Heavy signs of use. Visible damage, significant scratches, stains, or deterioration.
+       C  = Poor condition. Major scratches, stains, cracks, peeling, or noticeable defects.
+       D  = Serious damage or defects. Requires repair. Sold as-is.
+
+     Step 1 — identify the worst negative indicator and map to initial grade:
+       No negative indicators at all                                      → A
+       "未使用", "新品", "新品同様", "unused", "new"                      → S
+       "ほぼ未使用", "極めて少ない使用感", "almost unused", "near mint"   → A
+       "小傷", "薄いスレ", "軽微な使用感", "minor scratches", "light wear" → AB
+       "傷あり", "汚れあり", "使用感あり", "スレあり", "scratches", "stains", "wear" → B
+       "目立つ傷", "目立つ汚れ", "重度の使用感", "heavy wear", "visible damage" → BC
+       "大きな傷", "割れ", "剥がれ", "major damage", "cracks", "peeling"  → C
+       "ジャンク", "修理必要", "junk", "defective", "for parts"            → D
+
+     Step 2 — apply downgrade rule:
+       - If any negative indicator was found in Step 1 → use the grade AS-IS (no downgrade)
+       - If NO negative indicator found (only positive/vague description) → downgrade one step:
+         S→A, A→AB, AB→B, B→BC, BC→C, C→D, D→D
+     Multiple negatives rule: if 3 or more distinct negative indicators are mentioned,
+     downgrade the mapped grade one additional step.
+     Example: "小傷・スレあり" → AB, no downgrade → RANK: AB
+     Example: "メッキ剥がれ・小傷・スレ・シワあり" → multiple negatives (4種) → AB → downgrade → RANK: B
      When in doubt, choose the stricter (lower) grade.
    - Do NOT extract rank from a grade criteria table in the data
    - Always output a RANK line
