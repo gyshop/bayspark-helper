@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.59
+// @version      1.60
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -880,6 +880,35 @@ RANK: [grade]`;
     }
   }
 
+  // Item Specificsタブの空テキスト入力にN/Aを入力する
+  async function runFillNaSpecifics() {
+    // Item Specificsタブを開く
+    const tab = Array.from(document.querySelectorAll('[role="tab"], button, a, li, span')).find(
+      (el) => el.textContent.trim() === 'Item Specifics' && el.offsetParent !== null
+    );
+    if (!tab) { log('Item Specificsタブが見つかりませんでした'); return; }
+
+    fireFullClick(tab);
+    await sleep(800);
+
+    // 表示中のテキスト入力フィールドを取得（BSHパネル・非表示・selectは除外）
+    const inputs = Array.from(document.querySelectorAll('input[type="text"]')).filter((el) => {
+      if (el.offsetParent === null) return false;
+      if (el.closest('#bsh-panel')) return false;
+      return true;
+    });
+
+    const emptyInputs = inputs.filter((el) => el.value.trim() === '');
+    log(`Item Specifics: 空欄 ${emptyInputs.length} 件にN/Aを入力します`);
+
+    for (const el of emptyInputs) {
+      setInputValue(el, 'N/A');
+      await sleep(50);
+    }
+
+    log(`Item Specifics NA入力完了（${emptyInputs.length}件）`);
+  }
+
   async function runAiConditionInput() {
     log('AIコンディション入力を開始します');
 
@@ -1379,6 +1408,7 @@ RANK: [grade]`;
       ['👜 カテゴリのみ変更', wrapAction('カテゴリのみ変更', runCategoryChange)],
       ['📝 Item Specificsのみ作成', wrapAction('Item Specificsのみ作成', runItemSpecifics)],
       ['💰 販売価格提案のみ', wrapAction('販売価格提案のみ', runPriceSuggestion)],
+      ['📋 Item Specifics NA入力', wrapAction('Item Specifics NA入力', runFillNaSpecifics)],
       ['🤖 AIコンディション入力', wrapAction('AIコンディション入力', runAiConditionInput)],
       ['🤖 AI一括（選択商品）', wrapAction('AI一括コンディション入力', runBulkAiConditionInput)],
       ['⚙ 設定', () => openSettingsPanel()],
