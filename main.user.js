@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.60
+// @version      1.61
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -1092,6 +1092,27 @@ RANK: [grade]`;
     localStorage.setItem(AUTORUN_KEY, JSON.stringify({
       urls,
       index: 0,
+      type: 'ai',
+      returnUrl: window.location.href,
+    }));
+    log('1件目に移動します...');
+    await sleep(300);
+    window.location.href = urls[0];
+  }
+
+  async function runBulkNaSpecifics() {
+    const urls = getCheckedEditUrls();
+    if (urls.length === 0) {
+      throw new Error(
+        'チェックされた商品の編集URLが取得できませんでした。\n' +
+        '商品管理リストでチェックボックスを選択した状態で実行してください。'
+      );
+    }
+    log(`${urls.length}件のItem Specifics NA入力を開始します`);
+    localStorage.setItem(AUTORUN_KEY, JSON.stringify({
+      urls,
+      index: 0,
+      type: 'na',
       returnUrl: window.location.href,
     }));
     log('1件目に移動します...');
@@ -1136,13 +1157,19 @@ RANK: [grade]`;
       localStorage.removeItem(AUTORUN_KEY);
     }
 
-    log(`AI一括処理: ${current + 1} / ${total} 件目`);
-    setProgress(`AI一括処理中 (${current + 1}/${total})...`);
+    const isNaMode = queue.type === 'na';
+    const modeLabel = isNaMode ? 'NA入力一括処理' : 'AI一括処理';
+    log(`${modeLabel}: ${current + 1} / ${total} 件目`);
+    setProgress(`${modeLabel}中 (${current + 1}/${total})...`);
 
-    await sleep(3000);
+    await sleep(2000);
 
     try {
-      await runAiConditionInput();
+      if (isNaMode) {
+        await runFillNaSpecifics();
+      } else {
+        await runAiConditionInput();
+      }
       await sleep(500);
       // 保存前にリダイレクト期待フラグをセット（Filamentがリダイレクトした場合の対応）
       localStorage.setItem(AUTORUN_REDIRECT_KEY, '1');
@@ -1411,6 +1438,7 @@ RANK: [grade]`;
       ['📋 Item Specifics NA入力', wrapAction('Item Specifics NA入力', runFillNaSpecifics)],
       ['🤖 AIコンディション入力', wrapAction('AIコンディション入力', runAiConditionInput)],
       ['🤖 AI一括（選択商品）', wrapAction('AI一括コンディション入力', runBulkAiConditionInput)],
+      ['📋 Item Specifics NA一括（選択商品）', wrapAction('Item Specifics NA一括入力', runBulkNaSpecifics)],
       ['⚙ 設定', () => openSettingsPanel()],
       ['🧹 ログクリア', () => clearLog()],
     ];
