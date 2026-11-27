@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.62
+// @version      1.63
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -1146,6 +1146,9 @@ RANK: [grade]`;
       return;
     }
 
+    // 目的のページに到達したのでフラグを削除（Filamentとの競合に関わらず安全に削除）
+    localStorage.removeItem(AUTORUN_REDIRECT_KEY);
+
     const current = queue.index;
     const total = queue.urls.length;
 
@@ -1172,13 +1175,13 @@ RANK: [grade]`;
         await runAiConditionInput();
       }
       await sleep(500);
-      // 保存前にリダイレクト期待フラグをセット（Filamentがリダイレクトした場合の対応）
+      // 保存前にリダイレクト期待フラグをセット
+      // Filamentがリダイレクトした場合もスクリプトが自分でナビゲートした場合も
+      // フラグはリストページ到達時にのみ削除する（競合対策）
       localStorage.setItem(AUTORUN_REDIRECT_KEY, '1');
       await saveProductForm();
-      localStorage.removeItem(AUTORUN_REDIRECT_KEY); // 同ページに留まった場合はフラグ削除
       log(`${current + 1}件目の処理が完了しました`);
     } catch (e) {
-      localStorage.removeItem(AUTORUN_REDIRECT_KEY);
       log(`エラー（スキップして次へ）: ${e.message}`);
     }
 
