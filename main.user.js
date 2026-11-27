@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BaySpark Helper
 // @namespace    bayspark-helper
-// @version      1.61
+// @version      1.62
 // @description  BaySpark商品管理画面の一括処理を補助するツール
 // @match        https://bridgemencalendar.com/*
 // @run-at       document-idle
@@ -889,7 +889,7 @@ RANK: [grade]`;
     if (!tab) { log('Item Specificsタブが見つかりませんでした'); return; }
 
     fireFullClick(tab);
-    await sleep(800);
+    await sleep(1500);
 
     // 表示中のテキスト入力フィールドを取得（BSHパネル・非表示・selectは除外）
     const inputs = Array.from(document.querySelectorAll('input[type="text"]')).filter((el) => {
@@ -898,6 +898,7 @@ RANK: [grade]`;
       return true;
     });
 
+    log(`Item Specifics: 入力欄 ${inputs.length} 件検出`);
     const emptyInputs = inputs.filter((el) => el.value.trim() === '');
     log(`Item Specifics: 空欄 ${emptyInputs.length} 件にN/Aを入力します`);
 
@@ -1162,7 +1163,7 @@ RANK: [grade]`;
     log(`${modeLabel}: ${current + 1} / ${total} 件目`);
     setProgress(`${modeLabel}中 (${current + 1}/${total})...`);
 
-    await sleep(2000);
+    await sleep(isNaMode ? 3000 : 3000);
 
     try {
       if (isNaMode) {
